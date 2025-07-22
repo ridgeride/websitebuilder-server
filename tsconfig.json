@@ -1,12 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2019",
-    "module": "commonjs",
+    "module": "es2020",
     "outDir": "dist",
     "rootDir": ".",
     "strict": true,
     "esModuleInterop": true,
     "moduleResolution": "node"
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "shared/**/*.ts"]
 }
