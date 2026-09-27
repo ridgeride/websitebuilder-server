@@ -1,0 +1,1344 @@
+diff --git a/ANALYSE-CLAUDE-2026-09-27.md b/ANALYSE-CLAUDE-2026-09-27.md
+new file mode 100644
+index 0000000..d69e75c
+--- /dev/null
++++ b/ANALYSE-CLAUDE-2026-09-27.md
+@@ -0,0 +1,169 @@
++# Analyse Crypto Forecast Lab — 27 september 2026
++
++Onderzocht: broncode v26.6.0 (363 bestanden) en de analyse-export van 27-09-2026 07:19 UTC (43.259 logregels uit 60 tabellen, volledig gepagineerd, geen atomaire momentopname). Alle tijden zijn UTC.
++
++## 1. Kort antwoord
++
++1. **Er is sinds 21 september 18:00 geen enkele papertrade meer geopend.** Dat klopt met je gevoel. Het zijn ongeveer zes dagen, geen weken. Daarvóór liep het aantal nieuwe trades al hard terug (15 sept: 41, 16 sept: 8, 17 sept: 5, 19–21 sept: 1 tot 4 per dag).
++2. **De hoofdoorzaak is een vastgelopen keten.** Bitvavo geeft vanuit Cloudflare vrijwel continu *HTTP 429* (te veel aanvragen). Daardoor kunnen 6 open posities niet worden bijgewerkt. Een veiligheidsregel zegt: "zolang bestaande posities achterlopen, geen nieuw onderzoek". Die regel blokkeert daardoor sinds 22 september **álle** scans, analyses, de nieuwe Marktovergangen-proef, nabeschouwingen en historisch onderzoek.
++3. **De 429's komen niet van jouw app.** De app pauzeert zelf 16 → 32 → 64 → 128 → 240 minuten, en stuurt in die tijd niets. Toch krijgt telkens de allereerste aanvraag na zo'n pauze wéér een 429, zelfs na 4 uur stilte. Bitvavo telt anonieme aanvragen per IP-adres, en alle Cloudflare Workers delen uitgaande adressen. Andere gebruikers van hetzelfde adres gebruiken jouw limiet op. Dit was in v26.3 nog een vermoeden; de logs van 22–27 september bewijzen het nu praktisch.
++4. **De app leert op dit moment niet en past geen trades aan.** Dat heeft drie oorzaken:
++   - Er sluiten geen trades meer, dus er komt geen nieuw leermateriaal binnen.
++   - Alle 13 trades uit de nieuwe, strengere leerperiode (v26) zijn afgekeurd als "koerspad met gaten". Die gaten zijn echter minuten waarin op Bitvavo **niet gehandeld** werd. Bitvavo maakt voor zo'n minuut geen candle aan. Bij SOL ging het om 2 van de 1.440 minuten, bij NPC om 692 van de 1.440. Resultaat: **0 bruikbare leervoorbeelden**.
++   - Sinds v26.3 opent de brede scan (42 strategieën) bewust geen trades meer, alleen nog observaties. De gerichte proeven hebben vaste regels en passen zich bewust niet automatisch aan.
++5. **Tot en met 21 september verloor de papierportefeuille licht.** Er waren 179 gesloten trades met 27,4% winnaars, samen −€187 op inzetten van ongeveer €100. Om quitte te spelen was ongeveer 30,8% winnaars nodig geweest.
++
++Ik heb een herstelversie **v26.6.1** gemaakt die de keten doorbreekt (zie hoofdstuk 6), met tests (260/260 geslaagd), typecheck, lint en een productiebuild.
++
++## 2. Waarom er geen trades meer worden geopend
++
++### Tijdlijn
++
++| Periode | Wat de logs laten zien |
++|---|---|
++| 8–13 sept | Normaal draaien: 16–38 trades per dag. Wel al tientallen 429's per dag op losse munten (die munt werd dan overgeslagen). |
++| 14–17 sept | Strategie-evaluatie meldt steeds vaker "controles overgeslagen" en "koerspaden met onverklaarde gaten". De laatste geslaagde strategie-evaluatie is op 17 sept 16:30. Sindsdien is dat taakje 422 keer op rij mislukt of uitgesteld. |
++| 17–21 sept | Er zijn 40 → 505 429-fouten per dag. De oude pilotscan faalt bijna elke ronde. De laatste 3 trades worden geopend op 21 sept 18:00 (NPC ×2, DOGE). |
++| 22 sept 08:15 | v26.3 wordt uitgerold. De brede scan opent vanaf nu bewust geen trades meer (`BROAD_SCAN_POLICY.openPositions=false`). De nieuwe achterstandsblokkade (`guardNewResearch`) wordt actief. |
++| 22–27 sept | 96 van de 96 kwartierrondes per dag zijn "uitgesteld". De melding is steeds "Bitvavo: 6 bestaande posities lopen achter; eerst evaluaties bijwerken". De pauzes lopen op tot 4 uur; de melding op 27 sept is "8 opeenvolgende blokkades". |
++| 25 sept 12:15 | v26.6.0 wordt uitgerold. De Marktovergangen-scan heeft sindsdien nog nooit kunnen draaien (173 keer uitgesteld). |
++
++### De keten
++
++```
++Bitvavo 429 (gedeeld Cloudflare-IP)
++  → app zet een bronpauze (tot 4 uur)
++  → 6 open posities niet bijgewerkt (laatst: 23/24 sept 03:00)
++  → achterstandsregel: "geen nieuw onderzoek zolang posities > 20 min achterlopen"
++  → geen scans, geen instappen, geen Marktovergangen, geen nabeschouwing, geen historisch onderzoek
++  → posities blijven achterlopen …
++```
++
++De 6 posities die alles tegenhouden:
++
++| Trade | Munt | Richting | Verloopt | Laatst bijgewerkt |
++|---|---|---|---|---|
++| #95 | ETHFI 4u | short | 26 sept 16:00 (verlopen) | 24 sept 03:00 |
++| #178, #179 | AVAX 4u | long | 3 okt | 24 sept 03:00 |
++| #183, #184 | NPC 1u | short | 24 sept 18:00 (verlopen) | 24 sept 03:00 |
++| #185 | DOGE 1u | long | 24 sept 18:00 (verlopen) | 23 sept 03:00 |
++
++Vier van de zes zijn al verlopen. Ze kunnen alleen niet worden afgesloten zonder de koersminuten tot aan het verloopmoment.
++
++### Bewijs dat de blokkade van buiten komt
++
++- De app gebruikt maximaal 60 aanvragen per minuut. Bitvavo staat 1.000 gewichtspunten per minuut toe, en een blokkade voor anonieme aanvragen duurt 15 minuten.
++- Na elke pauze (16 minuten tot 4 uur, waarin de app niets naar Bitvavo stuurt) krijgt de eerste aanvraag direct weer een 429. Voorbeelden: 23 sept 08:01 → pauze tot 12:01 → 12:16 weer 429 → pauze tot 16:16 → 16:30 weer 429, enzovoort.
++- Eén keer (24 sept rond 18:00) lukte het kort. Direct daarna gaf Bitvavo aan dat er bijna geen budget meer over was, en volgde weer een 429. Dat is het patroon van een budget dat je met anderen deelt.
++
++## 3. Leert de app nog, en past hij trades aan?
++
++**Nee, op dit moment niet.** Dit is wat er in de export staat:
++
++| Leeronderdeel | Laatste update | Invloed op trades |
++|---|---|---|
++| Strategieprestaties (60 varianten) | 17 sept | 59 van 60 staan op "testing" met gewicht 1,0 (neutraal). Eén "candidate": Ichimoku/RSI 1u short, 12 voorbeelden, gewicht 1,23. Sinds v26.3 gebruikt de brede scan dit niet meer om te openen. |
++| Nieuwe leerperiode v26 (`verified26`) | — | 13 trades, **alle 13 uitgesloten** vanwege "gaten" (SOL 2/1.440 min, DOGE 20/90, ONDO 81/869, AVAX 385/1.440, SYRUP 503/1.440, NPC 692/1.440). Er zijn 0 geldige voorbeelden. |
++| Signaalgewichten (1.521 stuks) | 23 sept | 1.394 staan nog op 0,5 (geen informatie). |
++| Voorspellingen (24 uur) | 23 sept | 167 beoordeeld, 53 goed (31,7%). De Brier-score is 0,347, terwijl altijd "⅓-⅓-⅓" zeggen 0,333 geeft. De voorspellingen zijn dus nog iets slechter dan gokken. De app voorspelde 151 keer "base" als meest waarschijnlijk en nooit "bear", terwijl "bear" 61 keer de werkelijke uitkomst was. |
++| Gerichte proef focused26_3 | sinds 22 sept | 0 trades. 2 ideeën afgewezen door het regimefilter (munt 1u, munt 4u én BTC 4u moeten alle drie dezelfde kant op wijzen). |
++| Portefeuilleproeven (v26.5) en Marktovergangen (v26.6) | — | 0 trades. Ze konden sinds de uitrol nooit een marktronde draaien. |
++| Oude pilot26 | 21 sept | 9 posities (3 ideeën × 3 exitvarianten), alle 9 uitgesloten wegens "gaten". Uitkomst: −€75 / −€75 / −€56. |
++
++Samengevat: het ontwerp sinds v26.3 laat de app bewust **niet** zelf zijn trades aanpassen. Er is geen automatische promotie, en het beleid ligt vast totdat er genoeg onafhankelijke episodes zijn (minimaal 50 episodes en 8 weken). Daarnaast is de invoer voor het leren door de twee bugs hierboven helemaal opgedroogd.
++
++## 4. Resultaten van de papertrades tot nu toe (8–21 sept)
++
++| | Aantal | Winnaars | Som resultaat | Gemiddeld per trade |
++|---|---|---|---|---|
++| Alle gesloten | 179 | 27,4% | −€187,47 | −0,88% |
++| Doel geraakt | 39 | — | +€384,11 | +10,54% |
++| Stop geraakt | 125 | — | −€586,09 | −4,70% |
++| Verlopen | 15 | — | +€14,51 | +1,18% |
++| Long | 73 | 24,7% | −€42,66 | |
++| Short | 106 | 29,2% | −€144,81 | |
++
++- **Beste strategieën (klein aantal!):** Ichimoku/RSI (19 trades, +€29,89), RSI failure swing (5, +€18,62). **Slechtste:** Prijsactie met ATR-risico (6, −€28,46), Donchian/ADX (14, −€21,20), Parabolic SAR/ADX (11, −€19,41). Met 1 tot 19 trades per strategie is geen enkel verschil statistisch betrouwbaar.
++- **Munten:** NPC 48 trades (−€49,97), DOGE 36 (−€17,97), IOST 17 (+€91,73, de enige duidelijke uitschieter).
++- **Slechtste dag:** 15 sept, 41 trades, −€129,73. Van de 35 shorts werden er 27 gestopt; het was vermoedelijk een opleving.
++- **Dubbele posities:** 120 van de 185 trades (65%) werden per twee geopend, op dezelfde munt, in dezelfde richting en in dezelfde minuut, door verschillende strategieën. Dat verdubbelt het risico en telt eigenlijk hetzelfde idee twee keer.
++- **Scheve stops:** AVAX #178 heeft een stop 26% onder de instap en een doel 57% erboven, op een 4u-trade. De positiegrootte wordt dan klein (€18,54 voor €5 risico). Zulke trades zeggen weinig over de strategie.
++
++## 5. Losse eindjes
++
++Ernst: 🔴 blokkerend · 🟠 belangrijk · 🟡 opruimen/verbeteren
++
++| # | Ernst | Bevinding | Status in v26.6.1 |
++|---|---|---|---|
++| 1 | 🔴 | Anonieme Bitvavo-aanvragen via het gedeelde Cloudflare-IP krijgen structureel 429. | **Opgelost:** marktdata-aanvragen worden ondertekend met je eigen read-only Bitvavo-sleutel, zodat Bitvavo per account telt. Er is een aparte pauze per modus. Weigert Bitvavo de sleutel, dan valt de app automatisch terug op anoniem. |
++| 2 | 🔴 | Minuten zonder handel worden als "onverklaarde gaten" gezien. Daardoor wordt al het nieuwe bewijs uitgesloten, en ook instappen (41× "Instapvenster heeft onverklaarde ontbrekende candles"). | **Opgelost:** binnen een volledig ontvangen Bitvavo-venster telt een ontbrekende minuut als "geen handel". Ongeldige of dubbele candles blijven afgekeurd. Het beleid heeft een eigen versie (`coverage26_6_1-v1`). Oude labels worden niet herschreven. |
++| 3 | 🔴 | In een rustige markt (NPC) zou een positie **nooit** kunnen verlopen als er in de laatste 5 minuten vóór het einde niet gehandeld werd. Hij bleef dan eeuwig "achterlopen" en blokkeerde alle nieuwe instappen. Dit was nog niet gebeurd, maar zou na herstel van de bron direct opduiken (NPC is een van de zes proefmarkten). | **Opgelost:** een bevestigde handelsstilte telt als actuele koers. De positie verloopt op de laatste werkelijke handelskoers, en de achterstandsregel ziet haar niet meer als verouderd. |
++| 4 | 🔴 | Lege maar volledig opgehaalde koersvensters werden als fout behandeld. De positie schoof niet op, waardoor de achterstandsregel alles tegenhield. | **Opgelost** in strategie-evaluatie, pilot/gerichte proef, portefeuilleproeven en shadow-posities. |
++| 5 | 🟠 | Sinds v26.3 opent de brede 42-strategieënscan geen papertrades meer. De enige bron van nieuwe trades is nu de strenge gerichte proef (6 munten, 3 signalen, drievoudige trendbevestiging). Ook met een werkende bron zullen er dus weinig trades komen. | **Bewust niet veranderd**, dit is jouw keuze (zie 7B). |
++| 6 | 🟠 | 30% van de radar-/analyserondes (77 van 257) stopte op "Too many subrequests by single Worker invocation". 247 van 257 radarrapporten gebruikten daardoor het regelmodel in plaats van de AI-analyse. | Niet aangepast. Zie aanbeveling 7C. |
++| 7 | 🟠 | De voorspellingen hebben geen voorspellende waarde (zie 3) en kiezen bijna altijd "base". | Niet aangepast. Een nieuwe drempel moet als nieuwe vooraf vastgelegde proef worden getest. |
++| 8 | 🟠 | 60 dubbele trade-paren (zelfde munt, richting en minuut). | Niet relevant zolang de brede scan niet opent. Pas aan vóórdat je die weer aanzet. |
++| 9 | 🟡 | Wachtrijen die door de blokkade stilstaan: 188 nabeschouwingen "processing", 103 schokmetingen, 851 historische jobs. | Lopen vanzelf weer zodra de bron werkt. De achterstand is groot; het inhalen duurt dagen. |
++| 10 | 🟡 | De setupmotor (`trade_setups`) heeft in 19 dagen **nooit** een setup gemaakt. 224× was de reden "Geen liquide EUR-markt of onvoldoende chartbevestiging". | Controleer of je deze functie nog wilt, of maak de eisen minder streng. |
++| 11 | 🟡 | De watchlist heeft 84 actieve items, waaronder niet-crypto of niet-Bitvavo tickers vanuit de wereldradar (GOOGL, HOOD, RBLX, GLD, SNDKB, OPENAI, ANTHROPIC …). Die kosten analysetijd en aanvragen. | Opschonen aanbevolen. |
++| 12 | 🟡 | Telegram: 8.987 afleverregistraties in 19 dagen. Er zijn 3.571 meldingen, waarvan 623 ongelezen en 1.703 whale-meldingen. | Overweeg whale-meldingen alleen in het 4-uursoverzicht te zetten. |
++| 13 | 🟡 | Bybit EU gaf 23–25 sept herhaald HTTP 403 of "partial". eToro gaf fouten op 14 sept. Het Bitvavo-portefeuilleoverzicht is sinds 13 sept niet ververst (alleen bij openen van dat scherm). | Informatief. Controleer de Bybit-regio en sleutelrechten. |
++| 14 | 🟡 | `strategy_lab_cycle` staat in de gezondheidstabel nog op "error ×19" (laatst 22 sept). Deze taak bestaat sinds v26.3 niet meer. | Cosmetisch: oude status blijft zichtbaar. |
++| 15 | 🟡 | 2× "Failed query: insert into automation_settings" op 18 sept. | Eenmalige D1-fout, daarna niet meer gezien. |
++
++## 6. Wat v26.6.1 verandert
++
++**Nieuw bestand:** `lib/bitvavo-market-auth.ts`
++- Leest de Bitvavo read-only sleutel van de eigenaar uit de versleutelde kluis (of uit Cloudflare-secrets `BITVAVO_API_KEY`/`BITVAVO_API_SECRET`).
++- Ondertekent uitsluitend publieke GET-aanvragen voor marktdata (candles/markten), op dezelfde manier als de bestaande portefeuillekoppeling.
++- De sleutel wordt nooit opgeslagen in de cache, logs of browser.
++- Bij HTTP 401/403 volgt een automatische terugval naar anoniem voor 30 minuten, met een zichtbare reden.
++- Uitschakelen kan met de omgevingsvariabele `BITVAVO_MARKET_DATA_AUTH=off`.
++
++**Aangepast:**
++- `bitvavo-traffic.ts`, `public-market-cache.ts`: aparte pauze en blokkadereeks voor account en anoniem. Een oude IP-pauze blokkeert ondertekende aanvragen niet meer.
++- `integrations.ts`: ondertekenen en terugvallen. Budget, cache en wachtrij blijven zoals ze waren.
++- `research-policy.ts`, `chart-engine.ts`: `COVERAGE_POLICY coverage26_6_1-v1`. Minuten zonder handel worden als zodanig geteld (`quietMinutes`) en vastgelegd in het bewijs.
++- `adaptive-exits.ts`: `priceConfirmedAt` en expiry na bevestigde stilte, tegen de laatste werkelijke handelskoers.
++- `strategy-engine.ts`, `pilot-engine.ts`, `risk-engine.ts`, `research-shadows.ts`, `adaptive-engine.ts`: lege maar bevestigde vensters schuiven de positie op en kunnen haar laten verlopen. `lastClose` wordt bewaard.
++- `focused-engine.ts`, `portfolio-risk.ts`, `research-equity.ts`, `research-report.ts`, `adaptive-report.ts`, `transition-engine.ts`, `post-trade-store.ts`: gebruiken de bevestigde dekking en het bevestigde prijstijdstip.
++- `version-status.tsx`: onder de versieknop staat nu of Bitvavo-marktdata "ondertekend (accountlimiet)" of "anoniem (gedeeld IP)" loopt.
++
++**Niet veranderd:** alle proefregels (`focused26_3-v1`, `portfolio26_5-v1`, `transition26_6-v1`), exitregels, risicobudgetten, `BROAD_SCAN_POLICY`, bestaande resultaten en labels. Er is geen databasemigratie nodig.
++
++## 7. Wat jij moet doen en welke keuzes er zijn
++
++### A. Uitrollen
++
++1. Controleer in de app onder **Instellingen → API-sleutels** dat er een Bitvavo-sleutel staat met **alleen leesrechten** (geen handel, geen opname). In de export staan Bitvavo-saldi van 13 sept, dus waarschijnlijk is die er al.
++2. Pak de ZIP uit en voer de PowerShell-opdracht uit `START-HIER-UPDATE.md` uit.
++3. Controleer na de uitrol onder de versieknop:
++   - dat er **v26.6.1** staat;
++   - dat er "**ondertekend met je eigen read-only API-sleutel**" staat.
++4. De eerstvolgende kwartierrondes werken eerst de 6 achterstallige posities bij. Reken op 1 à 2 uur: er staan nog herpogingstijden van maximaal een uur, en elke ronde haalt per positie maximaal 24 uur aan minuutdata op. Vier posities zijn al over hun einddatum. Die sluiten dan als "verlopen", of eerder als stop of doel in het gemiste stuk alsnog geraakt is. Daarna starten de scans vanzelf weer. Een oude anonieme pauze blokkeert de ondertekende aanvragen niet.
++5. Het inhalen van de historische wachtrijen (851 jobs, 188 nabeschouwingen) kan enkele dagen duren. Dat is normaal.
++
++### B. Keuze: wil je weer méér papertrades?
++
++De brede scan staat sinds v26.3 bewust op "alleen observeren". Wil je weer veel papertrades en dat de 42 strategieën leren? Dan moet `BROAD_SCAN_POLICY.openPositions` op `true`. Doe dat bij voorkeur samen met:
++- maximaal één positie per munt per richting (tegen de 65% dubbele trades);
++- een maximale stopafstand (bijvoorbeeld 15%, zoals in de gerichte proef);
++- een nieuwe leerperiode (`STRATEGY_EPOCH`), zodat oude en nieuwe resultaten gescheiden blijven.
++
++Laat je hem uit, verwacht dan weinig trades. Die komen alleen wanneer munt 1u, munt 4u en BTC 4u gelijk wijzen op BTC, ETH, SOL, XRP, DOGE of NPC.
++
++### C. Overige aanbevelingen
++
++1. **Cloudflare-plan en subrequests:** controleer in het Cloudflare-dashboard of je Workers Free of Paid gebruikt. De foutmelding "Too many subrequests" betekent dat één aanroep te veel externe aanvragen doet. Op Paid is die limiet veel hoger. Dit raakt de AI-analyse en radar, niet de papertrades.
++2. **Voorspellingen:** behandel de 24-uursvoorspelling voorlopig als informatie, niet als signaal. Ze scoort niet beter dan ⅓-⅓-⅓.
++3. **Watchlist opschonen:** laat alleen munten staan die op Bitvavo in EUR verhandeld worden.
++4. **Telegram:** whale-meldingen alleen in het overzicht.
++5. **Pas de proefregels niet aan op basis van deze paar trades.** Er zijn te weinig voorbeelden per strategie om conclusies te trekken. Het grootste probleem was meten, niet de strategie.
++
++## 8. Verantwoording en grenzen
++
++- Controle in een ontwikkelomgeving: 260 van 260 tests geslaagd, waarvan 7 nieuw voor v26.6.1. Eén bestaande test is bewust aangepast omdat die precies het oude "gat"-gedrag vastlegde. Typecheck, lint en productiebuild zijn geslaagd.
++- Er is **niets** gedeployed naar je Cloudflare-account en niets gewijzigd in je database. Er zijn geen orders verstuurd.
++- Bitvavo was vanuit deze omgeving niet bereikbaar. Dat ondertekende aanvragen de gedeelde-IP-limiet omzeilen, volgt uit Bitvavo's eigen documentatie over rate limits: per account bij authenticatie, per IP zonder. Het ondertekeningsformaat is hetzelfde als dat van je werkende portefeuillekoppeling. Bevestig het na de uitrol aan de melding onder de versieknop en aan het verdwijnen van de "uitgesteld"-rondes.
++- Kort na een minuutgrens kan een net gesloten minuut soms nog niet gepubliceerd zijn. Dat risico bestond al voor minuten aan het eind van een venster. v26.6.1 behandelt lege vensters op dezelfde manier en maakt het niet groter.
++- De export is geen atomaire momentopname. Cijfers kunnen enkele regels afwijken van een momentopname op één tijdstip.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 8f07d71..d8bd6c6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,11 @@
++# v26.6.1 — Bronherstel Bitvavo en rustige markten (27 september 2026)
++
++- Publieke Bitvavo-marktdata wordt ondertekend met de read-only sleutel van de eigenaar (accountlimiet in plaats van gedeeld Cloudflare-IP). De pauze is gescheiden per modus, met automatische terugval bij een geweigerde sleutel.
++- Dekkingsbeleid coverage26_6_1-v1: een minuut zonder handel binnen een volledig ontvangen bronvenster is geen gat meer.
++- Een lege maar bevestigde periode schuift posities op. Verlopen na bevestigde stilte gebeurt op de laatste handelskoers. Veroudering telt vanaf het laatste bevestigde moment.
++- Versieknop toont de marktdatamodus. Zeven nieuwe tests. Geen migratie en geen wijziging van proefregels.
++- Zie ANALYSE-CLAUDE-2026-09-27.md, UPDATE-v26.6.1.md en QA-v26.6.1.md.
++
+ # v26.6.0 — Marktovergangen (25 september 2026)
+ 
+ - Nieuw overzicht met richting, onzekerheid, stress, BTC dag/week, dagbreedte, uitbraken en retests.
+diff --git a/CLOUDFLARE-UPDATE.ps1 b/CLOUDFLARE-UPDATE.ps1
+index ab18399..b4ef493 100644
+--- a/CLOUDFLARE-UPDATE.ps1
++++ b/CLOUDFLARE-UPDATE.ps1
+@@ -39,7 +39,7 @@ Copy-Item -LiteralPath $sourceConfig -Destination (Join-Path $PSScriptRoot "wran
+ 
+ Push-Location $PSScriptRoot
+ try {
+-  Write-Host "Crypto Forecast Lab v26.6.0 - Marktovergangen en onzekerheid" -ForegroundColor Cyan
++  Write-Host "Crypto Forecast Lab v26.6.1 - Bronherstel Bitvavo en rustige markten" -ForegroundColor Cyan
+   Write-Host "Bestaande Worker, D1-binding en Cloudflare-secrets blijven in gebruik."
+   Run-Checked "npm.cmd" @("ci")
+   Run-Checked "npx.cmd" @("wrangler", "whoami")
+@@ -49,12 +49,12 @@ try {
+   Run-Checked "npm.cmd" @("run", "build")
+   $backupDirectory = Join-Path $PSScriptRoot "backups"
+   New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
+-  $backupFile = Join-Path $backupDirectory ("voor-v26.6.0-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".sql")
++  $backupFile = Join-Path $backupDirectory ("voor-v26.6.1-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".sql")
+   Write-Host "Databaseback-up maken voordat migraties worden toegepast."
+   Run-Checked "npx.cmd" @("wrangler", "d1", "export", "crypto-forecast-lab", "--remote", "--output", $backupFile)
+   Run-Checked "npm.cmd" @("run", "cf:db:migrate")
+   Run-Checked "npx.cmd" @("wrangler", "deploy")
+-  Write-Host "Update gedeployed. Open de versieknop bovenaan de app: v26.6.0 en server bevestigd. Bekijk Trades > Open trades & historie > Marktovergangen. De nieuwe proeven verzamelen vanaf nu gegevens; de dagmand wordt geleidelijk aangevuld." -ForegroundColor Green
++  Write-Host "Update gedeployed. Open de versieknop bovenaan de app: v26.6.1 en server bevestigd. Controleer onder de versieknop dat Bitvavo-marktdata met je eigen read-only API-sleutel wordt ondertekend. Achterstallige posities worden eerst bijgewerkt; daarna starten nieuwe scans vanzelf." -ForegroundColor Green
+ } finally {
+   Pop-Location
+ }
+diff --git a/NIEUWE-CHAT-OVERDRACHT.md b/NIEUWE-CHAT-OVERDRACHT.md
+index 4b022ce..cf67e93 100644
+--- a/NIEUWE-CHAT-OVERDRACHT.md
++++ b/NIEUWE-CHAT-OVERDRACHT.md
+@@ -1,3 +1,11 @@
++# Actuele overdracht — v26.6.1 Bronherstel
++
++Lees eerst ANALYSE-CLAUDE-2026-09-27.md, daarna UPDATE-v26.6.1.md en QA-v26.6.1.md. Oorzaak van de handelsstilte sinds 21 september: anonieme Bitvavo-aanvragen via gedeelde Cloudflare-IP's gaven structureel 429 (ook na 4 uur eigen pauze), waardoor 6 posities achterliepen en guardNewResearch al het nieuwe onderzoek blokkeerde. Daarnaast werden minuten zonder handel als gaten gezien, waardoor 0 v26-trades leerbaar waren.
++
++Nieuw: lib/bitvavo-market-auth.ts (ondertekende publieke GET's met de read-only kluissleutel, pauzesleutels per modus, terugval bij 401/403, uit te zetten met BITVAVO_MARKET_DATA_AUTH=off). COVERAGE_POLICY coverage26_6_1-v1 en minuteRangeCoverage in research-policy.ts. advanceExit accepteert confirmedThrough. ExitState.quietThrough en priceConfirmedAt voor veroudering. Strategy trials bewaren pathProgress.lastClose en quietMinutes. tests/market-data.test.mjs.
++
++Proefregels, exitregels, BROAD_SCAN_POLICY (openPositions=false) en STRATEGY_EPOCH zijn ongewijzigd. Oude labels worden niet herschreven. Er is geen migratie. De gebruiker deployt zelf via CLOUDFLARE-UPDATE.ps1 met de v26.6.0-map als ExistingProjectPath. Open keuze voor de gebruiker: de brede scan weer posities laten openen (dan met één positie per munt/richting, een maximale stopafstand en een nieuwe epoch).
++
+ # Actuele overdracht — v26.6.0 Marktovergangen
+ 
+ De actuele code staat in deze volledige release. Zie UPDATE-v26.6.0.md, QA-v26.6.0.md en START-HIER-UPDATE.md. De onderstaande oudere overdracht is historische context.
+diff --git a/QA-v26.6.1.md b/QA-v26.6.1.md
+new file mode 100644
+index 0000000..81a1f6b
+--- /dev/null
++++ b/QA-v26.6.1.md
+@@ -0,0 +1,29 @@
++# Verificatie v26.6.1
++
++Gecontroleerd in de ontwikkelomgeving op 27 september 2026 met Node 22:
++
++- `npm run check` (lint, typecheck, productiebuild en alle tests): **263 geslaagd, 0 mislukt, 0 overgeslagen**, inclusief 9 nieuwe tests in `tests/market-data.test.mjs` en de bestaande serverrender-test.
++- `npm run test:core` (zoals CLOUDFLARE-UPDATE.ps1 draait): geslaagd.
++- ESLint en TypeScript: geen meldingen.
++- Productiebuild: geslaagd, 17 JavaScriptbestanden gecontroleerd. De bronexport bevat 368 bestanden.
++- Cloudflare-preflight: D1-binding, minuutcron en secretdeclaratie aanwezig. Geen evidente hardcoded secrets.
++
++## Nieuwe regressiedekking
++
++- Stille minuten binnen een volledig ontvangen venster tellen als `continuous` met `quietMinutes`. Ongeldige of dubbele candles blijven `invalid`. `candleCoverage` zelf is ongewijzigd.
++- Een schaars ontvangen Bitvavo-venster wordt vastgelegd met het aantal stille minuten.
++- Een positie in een stille markt verloopt op de laatste handelskoers zodra het venster bevestigd is. Zonder bevestiging blijft het oude gedrag gelden.
++- Een positie die al tot haar einde verwerkt is, verloopt via een leeg bevestigd venster.
++- Marktdata wordt ondertekend met exact het Bitvavo-HMAC-formaat (timestamp + methode + pad + query). De sleutel komt niet in de cache.
++- Een anonieme IP-pauze blokkeert ondertekende aanvragen niet. Een accountpauze wordt apart opgeslagen.
++- Een geweigerde sleutel (HTTP 401 of errorCode 3xx) valt in dezelfde aanvraag terug op anoniem. Een HTML-blokpagina (403) schakelt de sleutel niet uit.
++- Zonder sleutel blijven aanvragen ongetekend en gebruiken ze de oorspronkelijke pauze.
++- Een verlopen v26-strategietest met een stille laatste periode sluit als `chronological_v3`, is leerbaar en haalt de achterstandsblokkade weg. Een oudere positie haalt de laatste handelskoers exact terug uit de opgeslagen fill.
++
++## Bewust aangepaste bestaande test
++
++`research-v26.test.mjs` legde vast dat één ontbrekende minuut in een ontvangen venster een pilotpositie uitsloot. Die test controleert nu het nieuwe beleid: de stille minuut is geen gat. Hij controleert ook dat een eerder opgeslagen `gaps_unresolved`-label behouden en uitgesloten blijft.
++
++## Grenzen
++
++Er is geen deployment naar jouw Cloudflare-account uitgevoerd, niets gewijzigd in je productiedatabase en geen Telegram-bericht of beursorder verstuurd. Bitvavo was vanuit deze omgeving niet bereikbaar. Het ondertekende verkeer is getest met gemockte antwoorden en gebruikt hetzelfde formaat als de bestaande, werkende portefeuillekoppeling. De PowerShell-updateflow is alleen statisch gecontroleerd, niet op Windows uitgevoerd. Er is geen interactieve browsercontrole gedaan. Deze controles bewijzen softwaregedrag in de geteste gevallen, geen winstverbetering.
+diff --git a/START-HIER-UPDATE.md b/START-HIER-UPDATE.md
+index dae7b54..b0137d0 100644
+--- a/START-HIER-UPDATE.md
++++ b/START-HIER-UPDATE.md
+@@ -1,21 +1,19 @@
+-# Crypto Forecast Lab v26.6.0 — Marktovergangen
++# Crypto Forecast Lab v26.6.1 — Bronherstel Bitvavo en rustige markten
+ 
+-Pak de ZIP uit zodat CLOUDFLARE-UPDATE.ps1 direct in de nieuwe map staat. Voer daarna uit:
++Controleer eerst in de app onder **Instellingen → API-sleutels** dat er een Bitvavo-sleutel met uitsluitend leesrechten is opgeslagen. Pak daarna de ZIP uit, zodat CLOUDFLARE-UPDATE.ps1 direct in de nieuwe map staat. Voer dan uit:
+ 
+ ```powershell
+-Set-Location 'C:\Users\jmvdn\Trading Lab\Crypto-Forecast-Lab-v26.6.0-Marktovergangen'
+-.\CLOUDFLARE-UPDATE.ps1 -ExistingProjectPath 'C:\Users\jmvdn\Trading Lab\Crypto-Forecast-Lab-v26.5.0-Portefeuille-Schokonderzoek'
++Set-Location 'C:\Users\jmvdn\Trading Lab\Crypto-Forecast-Lab-v26.6.1-Bronherstel'
++.\CLOUDFLARE-UPDATE.ps1 -ExistingProjectPath 'C:\Users\jmvdn\Trading Lab\Crypto-Forecast-Lab-v26.6.0-Marktovergangen'
+ ```
+ 
+-De tweede map moet jouw vorige projectmap met de actieve wrangler.jsonc zijn. Staat die elders, gebruik die map. Het script neemt de configuratie over, controleert de code, maakt een databaseback-up, voert migraties tot en met 0027 uit en deployt naar dezelfde Worker en database. Node 22.13 of hoger, npm en Cloudflare-login zijn nodig. Bij een fout stopt het script.
++De tweede map moet jouw vorige projectmap met de actieve wrangler.jsonc zijn. Staat die elders, gebruik dan die map. Het script neemt de configuratie over, controleert de code, maakt een databaseback-up, voert eventuele migraties uit en deployt naar dezelfde Worker en database. Deze versie heeft geen nieuwe migratie.
+ 
+ Na upload:
+ 
+-1. Controleer bovenaan **v26.6.0 · server bevestigd**, inclusief buildcode.
+-2. Open **Trades → Open trades & historie → Marktovergangen**.
+-3. Laat automatische evaluatie ingeschakeld. De dagmand wordt geleidelijk opgebouwd; ontbrekende dekking blijft expliciet onbekend.
+-4. Twee bevestigingen vereisen twee opeenvolgende nieuwe gesloten uurcandles. Herhaald scannen versnelt dat niet.
+-5. De vier nieuwe paperrekeningen vullen zich met nieuwe geldige kandidaten. Vergelijk vroeg herstel met de halve controle, zodat kleinere posities niet voor een betere strategie worden aangezien.
+-6. De bestaande gerichte proef, portefeuille-/schokproeven, kalender en nabeschouwingen blijven beschikbaar. Bronpauzes en onvolledige koerspaden blijven afhankelijk van de marktbron.
++1. Controleer bovenaan **v26.6.1 · server bevestigd**, inclusief buildcode.
++2. Controleer onder de versieknop: **Bitvavo-marktdata: ondertekend met je eigen read-only API-sleutel**. Staat daar "anoniem", koppel dan de Bitvavo-sleutel opnieuw onder Instellingen.
++3. Laat automatische evaluatie ingeschakeld. De 6 achterstallige posities worden eerst bijgewerkt (1 à 2 uur). Daarna starten scans en proeven vanzelf.
++4. Kijk na een paar uur of de kwartierrondes weer "geslaagd" of "deels" zijn in plaats van "uitgesteld".
+ 
+-Lees UPDATE-v26.6.0.md voor exacte regels en beperkingen en QA-v26.6.0.md voor de verificatie. De nieuwe uitbreiding stuurt geen echte orders en voorspelt geen bullmarkt met zekerheid.
++Lees ANALYSE-CLAUDE-2026-09-27.md voor de volledige analyse, UPDATE-v26.6.1.md voor de wijzigingen en QA-v26.6.1.md voor de verificatie. Deze release stuurt geen echte orders en wijzigt geen proefregels.
+diff --git a/UPDATE-v26.6.1.md b/UPDATE-v26.6.1.md
+new file mode 100644
+index 0000000..2b09b66
+--- /dev/null
++++ b/UPDATE-v26.6.1.md
+@@ -0,0 +1,27 @@
++# v26.6.1 — Bronherstel Bitvavo en rustige markten
++
++Herstelrelease na de analyse van 27 september 2026 (zie ANALYSE-CLAUDE-2026-09-27.md). Sinds 21 september werden geen papertrades meer geopend en sinds 22 september werd vrijwel iedere marktronde uitgesteld. Deze release lost de oorzaken op zonder proefregels te wijzigen.
++
++## Wat was er mis?
++
++1. **Gedeeld IP bij Bitvavo.** Anonieme aanvragen worden door Bitvavo per IP-adres geteld. Cloudflare Workers delen uitgaande adressen. Na elke eigen pauze (tot 4 uur zonder één aanvraag) gaf de eerste aanvraag direct weer HTTP 429. Zes open posities konden daardoor niet worden bijgewerkt, en de achterstandsregel hield vervolgens alle nieuwe scans, proeven en nabeschouwingen tegen.
++2. **Geen handel ≠ ontbrekende data.** Bitvavo maakt geen 1m-candle voor een minuut zonder transacties. De app zag zulke minuten als "onverklaarde gaten". Alle 13 trades van de nieuwe leerperiode en alle 9 pilotposities werden daardoor uitgesloten van bewijs (bijvoorbeeld SOL: 2 van 1.440 minuten zonder handel).
++3. **Rustige markt kon niet verlopen.** Een positie verliep alleen als de laatste handelskoers binnen 5 minuten vóór het einde lag. In een rustige markt bleef de positie dus open en "verouderd", en blokkeerde ze nieuwe instappen.
++
++## Wat verandert er?
++
++- **Ondertekende marktdata.** Publieke candle- en marktaanvragen worden ondertekend met je eigen Bitvavo read-only sleutel uit de versleutelde kluis (of uit de Cloudflare-secrets `BITVAVO_API_KEY`/`BITVAVO_API_SECRET`). Bitvavo telt de limiet dan per account in plaats van per gedeeld IP. Budget, cache, wachtrij en pauzes blijven gelden, maar de pauzes zijn nu gescheiden per modus (`bitvavo:cooldown:account` of `bitvavo:cooldown`). Weigert Bitvavo de sleutel (401/403), dan valt de app 30 minuten terug op anoniem en toont de reden. Uitschakelen kan met `BITVAVO_MARKET_DATA_AUTH=off`.
++- **Dekkingsbeleid `coverage26_6_1-v1`.** Binnen een volledig ontvangen Bitvavo-venster telt een minuut zonder candle als minuut zonder handel (`quietMinutes`). Ongeldige of dubbele candles blijven een weigering. Het beleid en het aantal stille minuten staan in het bewijs van iedere controle.
++- **Bevestigde stilte.** Een leeg, volledig ontvangen venster schuift een positie op in plaats van een fout te geven. Na het einde van de looptijd sluit de positie op de laatste werkelijke handelskoers, met de reden "daarna bevestigd geen handel op Bitvavo". Veroudering wordt gemeten vanaf het laatste bevestigde moment (`priceConfirmedAt`). Dit geldt voor strategietests, pilot/gerichte proef, portefeuille- en overgangsrekeningen, adaptieve posities en shadows.
++- **Zichtbaarheid.** Onder de versieknop staat of Bitvavo-marktdata ondertekend (accountlimiet) of anoniem (gedeeld IP) loopt.
++
++## Wat verandert er niet?
++
++- `focused26_3-v1`, `portfolio26_5-v1`, `transition26_6-v1`, `pilot26-v1` en `execution26-v1` blijven ongewijzigd.
++- Exitregels, risicobudgetten, `BROAD_SCAN_POLICY` (brede scan opent geen posities) en `STRATEGY_EPOCH` blijven ongewijzigd.
++- Opgeslagen resultaten en kwaliteitslabels worden niet herschreven. Oude "gaps_unresolved"-labels blijven staan en blijven uitgesloten.
++- Er is geen databasemigratie. De Bitvavo-sleutel wordt alleen gelezen en nooit in cache, logboek of browser gezet.
++
++## Na de update
++
++Achterstallige posities worden eerst bijgewerkt. Reken op 1 à 2 uur door bestaande herpogingstijden en maximaal 24 uur minuutdata per positie per ronde. Daarna lopen de scans en proeven weer. Historische wachtrijen en nabeschouwingen halen hun achterstand in de dagen daarna geleidelijk in.
+diff --git a/app/version-status.tsx b/app/version-status.tsx
+index 96d97fd..493ffd1 100644
+--- a/app/version-status.tsx
++++ b/app/version-status.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ import {useCallback,useEffect,useState} from 'react';
+ import local from '../lib/generated-release.json' with {type:'json'};
+-type Report={release:typeof local;at:string;missingTables:string[];operationalError:string|null;operational:{backlog:{total:number;trials:number;pilotPositions:number;adaptivePositions:number;ageMinutes:number;oldestAt:number|null};traffic:{cooldown:{retryAt:number;reason:string}|null;requests:number;limit:number;backgroundLimit:number}}|null;health:Array<{task:string;status:string;detail:string;kind:string;version:string;buildId:string;notBefore:string|null;attemptedAt:string;succeededAt:string|null}>;runs:Array<{id:number;at:string;status:string;version:string;buildId:string|null;tasks:Array<{task:string;status:string;detail:string;version:string;buildId:string}>}>};
++type Report={release:typeof local;at:string;missingTables:string[];operationalError:string|null;operational:{backlog:{total:number;trials:number;pilotPositions:number;adaptivePositions:number;ageMinutes:number;oldestAt:number|null};traffic:{cooldown:{retryAt:number;reason:string}|null;requests:number;limit:number;backgroundLimit:number;marketData?:{mode:'account'|'anonymous';rejected:{until:number;reason:string}|null}}}|null;health:Array<{task:string;status:string;detail:string;kind:string;version:string;buildId:string;notBefore:string|null;attemptedAt:string;succeededAt:string|null}>;runs:Array<{id:number;at:string;status:string;version:string;buildId:string|null;tasks:Array<{task:string;status:string;detail:string;version:string;buildId:string}>}>};
+ export default function VersionStatus(){
+  const [server,setServer]=useState<typeof local|null>(null),[error,setError]=useState(''),[open,setOpen]=useState(false),[report,setReport]=useState<Report|null>(null),[reportError,setReportError]=useState('');
+  const check=useCallback(async()=>{try{const r=await fetch('/api/version',{cache:'no-store'});if(!r.ok)throw Error();const d=await r.json();if(typeof d.version!=='string'||typeof d.buildId!=='string')throw Error();setServer(d);setError('');}catch{setServer(null);setError('Serverversie niet bevestigd.');}},[]);
+@@ -16,6 +16,7 @@ export default function VersionStatus(){
+  {report.operationalError&&<p role="alert">Bronstatus niet bevestigd: {report.operationalError}</p>}
+  {report.operational&&<><p>{report.operational.traffic.cooldown?<>Publieke Bitvavo-bron gepauzeerd. Niet opnieuw aanvragen vóór <strong>{new Date(report.operational.traffic.cooldown.retryAt).toLocaleString('nl-NL')}</strong>. {report.operational.traffic.cooldown.reason}</>:<>Geen actieve publieke Bitvavo-bronpauze opgeslagen. Dit bevestigt op zichzelf nog geen geslaagde koerscontrole.</>}</p>
+  <p>Aanvragen in de huidige minuut: {report.operational.traffic.requests} van {report.operational.traffic.limit}; scans en achtergrondwerk kunnen tot {report.operational.traffic.backgroundLimit} gebruiken.</p>
++ {report.operational.traffic.marketData&&<p>Bitvavo-marktdata: {report.operational.traffic.marketData.mode==='account'?<>ondertekend met je eigen read-only API-sleutel; Bitvavo telt de limiet per account.</>:<>anoniem via het gedeelde Cloudflare-IP. Koppel een Bitvavo read-only sleutel onder Instellingen om gedeelde IP-blokkades te vermijden.</>}{report.operational.traffic.marketData.rejected?<> {report.operational.traffic.marketData.rejected.reason}</>:null}</p>}
+  <p><strong>{report.operational.backlog.total} posities met een controleachterstand</strong>: {report.operational.backlog.trials} strategietests, {report.operational.backlog.pilotPositions} proefposities en {report.operational.backlog.adaptivePositions} adaptieve posities. {report.operational.backlog.total>0?`De oudste controle loopt ${report.operational.backlog.ageMinutes} minuten achter; nieuwe onderzoeksinstappen wachten.`:''}</p></>}
+  <h3>Laatste taakstatussen</h3><p>Iedere taak vermeldt de versie van de laatste poging. Een oude fout kan blijven staan totdat die taak opnieuw is uitgevoerd. ‘ok’ kan ook betekenen dat er geen posities te controleren waren.</p>
+  {report.health.map(t=><details key={t.task}><summary>{t.task} · {t.status}{t.status==='error'?' · '+t.kind:''} · {t.version==='Niet vastgelegd'?t.version:'v'+t.version}</summary><p>{t.detail}</p><p>Build: {t.buildId}. Laatste poging: {t.attemptedAt}; laatste succes: {t.succeededAt||'nog niet vastgelegd'}.</p>{t.notBefore&&<p>Opgeslagen ondergrens voor herpoging: {t.notBefore}. De volgende geplande ronde kan later zijn.</p>}</details>)}
+diff --git a/lib/adaptive-engine.ts b/lib/adaptive-engine.ts
+index 776bd07..3d99d10 100644
+--- a/lib/adaptive-engine.ts
++++ b/lib/adaptive-engine.ts
+@@ -3,7 +3,7 @@ import {classifyWorkError} from './task-outcome';
+ import {assertPriceContinuity} from './candle-quality';
+ import {fetchBitvavoCandles,fetchBitvavoMinuteCandlesRange} from './chart-engine';
+ import {classifyRegime,advanceRegime,regimeEntryDecision,type RegimeMemory} from './market-regime';
+-import {ADAPTIVE_POLICY as P,initialExitState,advanceExit,tightenStop,type ExitState,type ExitVariant} from './adaptive-exits';
++import {ADAPTIVE_POLICY as P,initialExitState,advanceExit,tightenStop,priceConfirmedAt,type ExitState,type ExitVariant} from './adaptive-exits';
+ import {rawResearch,withResearchLock} from './research-store';
+ import {strategyRiskPlan,type StrategyHit,type StrategyCandle} from './strategy-signals';
+ import {recordDecisionSafely} from './decision-log';
+@@ -42,7 +42,7 @@ export async function ingestAdaptiveCandidates(candidates:AdaptiveCandidate[],ta
+   const lastLoss=await raw.prepare("SELECT idea_id,closed_at FROM adaptive_positions WHERE variant='hybrid' AND market=? AND status!='open' AND realized_pnl<0 ORDER BY closed_at DESC LIMIT 1").bind(c.market).first<{idea_id:number;closed_at:string}>();
+   const prior=lastLoss?await raw.prepare('SELECT evidence_json FROM adaptive_ideas WHERE id=?').bind(lastLoss.idea_id).first<{evidence_json:string}>():null;
+   const balances=(await raw.prepare("SELECT variant,sum(realized_pnl-reserved) cash,sum(CASE WHEN status='open' THEN risk_eur ELSE 0 END) risk FROM adaptive_positions GROUP BY variant").all<{cash:number;risk:number}>()).results as {cash:number;risk:number}[];
+-  const stale=open.some(r=>{const s=JSON.parse(r.payload_json);return now-s.lastPriceAt>1200000||now-s.through>1200000;});
++  const stale=open.some(r=>{const s=JSON.parse(r.payload_json);return now-priceConfirmedAt(s)>1200000||now-s.through>1200000;});
+   const stress=quote.candles.length>1&&Math.abs(last.close/quote.candles[0].open-1)>Math.max(.02,2*coin.reading.atr/last.close);
+   const families=new Set(group.map(x=>x.hit.family)).size,conflict=candidates.some(x=>x.market===c.market&&x.hit.direction!==h.direction);
+   const regimeReason=stale?'Open portefeuilleposities zijn nog niet volledig gecontroleerd.':stress?'Snelle uitzonderlijke koersbeweging; wachten.':regimeEntryDecision({direction:h.direction,coin:coin.state.stable,market:broad.state.stable,families,conflict});
+@@ -62,11 +62,11 @@ export async function savePosition(row:Row,state:ExitState){
+  const result=await raw.batch(writes);if(!result[0].meta.changes)throw Error('Positie gelijktijdig gewijzigd.');
+  if(row.variant==='hybrid'&&state.events.length)await recordDecisionSafely({eventKey:`adaptive-position:${row.id}:${row.revision+1}`,category:'adaptive',asset:row.market,action:closed?(state.status==='ambiguous'?'adaptive_ambiguous':'adaptive_closed'):'adaptive_stop_update',status:state.status,title:`Paperpositie ${row.market}: ${state.status}`,reasoning:state.events.map(e=>e.reason).join(' '),evidence:{events:state.events,realized:state.realized,manual:state.manual}});
+ }
+-async function advanceMarket(market:string,state:ExitState){const to=Math.floor(Math.min(Date.now(),state.expiresAt)/60000)*60000,range=await fetchBitvavoMinuteCandlesRange(market,state.through,to,1440);assertPriceContinuity(range.candles,state.lastPrice);const next=advanceExit(state,range.candles,range.complete?Date.now():range.to);
+- if(!range.candles.length&&next.status==='open'&&Date.now()-state.lastPriceAt>1200000)throw Error('Geen recente candles.');if(next.status==='open')next.through=range.to;return {next,complete:range.complete};}
++async function advanceMarket(market:string,state:ExitState){const to=Math.floor(Math.min(Date.now(),state.expiresAt)/60000)*60000,range=await fetchBitvavoMinuteCandlesRange(market,state.through,to,1440);assertPriceContinuity(range.candles,state.lastPrice);const next=advanceExit(state,range.candles,range.complete?Date.now():range.to,range.coverage?.sourceConfirmed?range.to:undefined);
++ if(!range.candles.length&&next.status==='open'&&Date.now()-priceConfirmedAt(next)>1200000)throw Error('Geen recente candles.');if(next.status==='open')next.through=range.to;return {next,complete:range.complete};}
+ export async function monitorAdaptivePositions(){return withResearchLock('adaptive',async()=>{const raw=rawResearch(),start=Date.now();let checked=0,skipped=0,backfillPending=0,deferred=0;const failures:Array<Record<string,unknown>>=[];
+  const rows=(await raw.prepare("SELECT * FROM adaptive_positions WHERE status='open' ORDER BY json_extract(payload_json,'$.through') LIMIT 24").all<Row>()).results as Row[];
+- for(const row of rows){if(Date.now()-start>15000){skipped++;deferred++;continue;}try{const {next,complete}=await advanceMarket(row.market,JSON.parse(row.payload_json));await savePosition(row,next);checked++;if(!complete)backfillPending++;if(complete&&next.status==='open'&&Date.now()-next.lastPriceAt>1200000)skipped++;}catch(error){skipped++;failures.push({market:row.market,error:diagnosticReason(error),workStatus:classifyWorkError(error).status});}}return {checked,skipped,backfillPending,deferred,failures};});}
++ for(const row of rows){if(Date.now()-start>15000){skipped++;deferred++;continue;}try{const {next,complete}=await advanceMarket(row.market,JSON.parse(row.payload_json));await savePosition(row,next);checked++;if(!complete)backfillPending++;if(complete&&next.status==='open'&&Date.now()-priceConfirmedAt(next)>1200000)skipped++;}catch(error){skipped++;failures.push({market:row.market,error:diagnosticReason(error),workStatus:classifyWorkError(error).status});}}return {checked,skipped,backfillPending,deferred,failures};});}
+ export async function monitorBlockedIdeas(){return withResearchLock('adaptive-shadows',async()=>{const raw=rawResearch();let checked=0,skipped=0;const failures:Array<{market:string;error:string}>=[];
+  const rows=(await raw.prepare("SELECT id,market,shadow_json FROM adaptive_ideas WHERE accepted=0 AND shadow_status='open' ORDER BY updated_at LIMIT 4").all<{id:number;market:string;shadow_json:string}>()).results as {id:number;market:string;shadow_json:string}[];
+  for(const row of rows)try{const {next}=await advanceMarket(row.market,JSON.parse(row.shadow_json));await raw.prepare('UPDATE adaptive_ideas SET shadow_json=?,shadow_status=?,updated_at=? WHERE id=? AND shadow_json=?').bind(JSON.stringify({...next,events:[]}),next.status,new Date().toISOString(),row.id,row.shadow_json).run();checked++;}catch(error){skipped++;failures.push({market:row.market,error:diagnosticReason(error)});}return {checked,skipped,failures};});}
+diff --git a/lib/adaptive-exits.ts b/lib/adaptive-exits.ts
+index 9ad46a0..50cb402 100644
+--- a/lib/adaptive-exits.ts
++++ b/lib/adaptive-exits.ts
+@@ -2,7 +2,9 @@ import type {StrategyCandle} from './strategy-signals';
+ export const ADAPTIVE_POLICY={version:'adaptive-v1',startingEquity:10000,riskPerIdea:25,maxOpenRisk:100,maxDailyLoss:200,maxCoinLoss:50,maxNotional:1000,cooldownBars:2,feeRate:0.0025,slippageRate:0.001,trailingAtr:3,activationR:1.5,partialR:2,maximumHours:72} as const;
+ export type ExitRules={activationR:number;trailingAtr:number;partialR:number;partialFraction:number;protectNetBreakEven?:boolean};
+ export type ExitVariant='fixed'|'trailing'|'hybrid'|'tight3r';
+-export type ExitState={variant:ExitVariant;direction:'long'|'short';entry:number;initialStop:number;stop:number;target:number;atr:number;notional:number;quantity:number;remaining:number;realized:number;reserved:number;status:'open'|'target'|'stopped'|'expired'|'ambiguous';openedAt:number;expiresAt:number;through:number;lastPrice:number;lastPriceAt:number;best:number;partialDone:boolean;trailingActive:boolean;feeRate:number;slippageRate:number;policyVersion:string;events:ExitEvent[];manual:boolean;rules?:ExitRules;spreadSource?:string;pendingStop?:{price:number;effectiveAt:number}};
++export type ExitState={variant:ExitVariant;direction:'long'|'short';entry:number;initialStop:number;stop:number;target:number;atr:number;notional:number;quantity:number;remaining:number;realized:number;reserved:number;status:'open'|'target'|'stopped'|'expired'|'ambiguous';openedAt:number;expiresAt:number;through:number;lastPrice:number;lastPriceAt:number;best:number;partialDone:boolean;trailingActive:boolean;feeRate:number;slippageRate:number;policyVersion:string;events:ExitEvent[];manual:boolean;rules?:ExitRules;spreadSource?:string;pendingStop?:{price:number;effectiveAt:number};quietThrough?:number};
++/** Last trade time, extended by source-confirmed minutes without trades (v26.6.1). */
++export function priceConfirmedAt(s:{lastPriceAt:number;quietThrough?:number}){return Math.max(s.lastPriceAt,Number.isFinite(s.quietThrough)?Number(s.quietThrough):0);}
+ export type ExitEvent={at:number;kind:string;price:number;fraction:number;pnl:number;reason:string};
+ export function initialExitState(input:{variant:ExitVariant;direction:'long'|'short';price:number;stop:number;target:number;atr:number;notional:number;openedAt:number;rules?:ExitRules;policyVersion?:string;feeRate?:number;slippageRate?:number;maximumHours?:number}):ExitState {
+  const sign=input.direction==='long'?1:-1;
+@@ -18,7 +20,7 @@ export function tightenStop(state:ExitState,next:number,at:number):ExitState {
+  if(state.status!=='open'||!Number.isFinite(next)||next<=0||sign*(next-(state.pendingStop?.price??state.stop))<=0||sign*(state.lastPrice-next)<=0)throw new Error('Stop moet beschermen, mag niet worden verruimd en moet aan de juiste kant van de laatste koers blijven.');
+  return {...state,pendingStop:{price:next,effectiveAt:Math.ceil(at/60000)*60000},manual:true,events:[...state.events,{at,kind:'manual_stop_requested',price:next,fraction:0,pnl:0,reason:'Handmatige aanscherping; deze positie is niet meer een zuivere automatische vergelijking.'}]};
+ }
+-export function advanceExit(previous:ExitState,rows:StrategyCandle[],asOf=Date.now()):ExitState {
++export function advanceExit(previous:ExitState,rows:StrategyCandle[],asOf=Date.now(),confirmedThrough?:number):ExitState {
+  const s:ExitState={...previous,events:[]}; if(s.status!=='open')return s;
+  const sign=s.direction==='long'?1:-1,risk=Math.abs(s.entry-s.initialStop);
+  const fixedTarget=s.variant==='fixed'||s.variant==='tight3r';
+@@ -65,6 +67,9 @@ export function advanceExit(previous:ExitState,rows:StrategyCandle[],asOf=Date.n
+    if(sign*(next-s.stop)>0){s.stop=next;s.events.push({at:c.timestamp+60000,kind:rules.protectNetBreakEven?'protected_trailing_stop':'trailing_stop',price:next,fraction:0,pnl:0,reason:'Na gesloten candle aangescherpt; vanaf volgende candle geldig. Een koersgat kan alsnog verlies veroorzaken.'});}
+   }
+  }
+- if(s.status==='open'&&asOf>=s.expiresAt&&s.through>=Math.floor(s.expiresAt/60000)*60000&&s.expiresAt-s.lastPriceAt<=5*60000){closePart(s.lastPrice,s.remaining,s.expiresAt,'expired','Maximale duur bereikt; laatst bevestigde koers binnen vijf minuten.');s.status='expired';}
++ // A fully received Bitvavo window without later candles proves there was no trade after lastPriceAt.
++ if(s.status==='open'&&Number.isFinite(confirmedThrough)&&Number(confirmedThrough)>s.lastPriceAt)s.quietThrough=Math.max(s.quietThrough??0,Math.min(Number(confirmedThrough),asOf,s.expiresAt));
++ const quiet=s.quietThrough!=null&&s.quietThrough>s.lastPriceAt;
++ if(s.status==='open'&&asOf>=s.expiresAt&&Math.max(s.through,quiet?s.quietThrough!:0)>=Math.floor(s.expiresAt/60000)*60000&&s.expiresAt-priceConfirmedAt(s)<=5*60000){closePart(s.lastPrice,s.remaining,s.expiresAt,'expired',quiet&&s.expiresAt-s.lastPriceAt>5*60000?'Maximale duur bereikt; laatste handelskoers, daarna bevestigd geen handel op Bitvavo.':'Maximale duur bereikt; laatst bevestigde koers binnen vijf minuten.');s.status='expired';}
+  return s;
+ }
+diff --git a/lib/adaptive-report.ts b/lib/adaptive-report.ts
+index 652b0c7..909c431 100644
+--- a/lib/adaptive-report.ts
++++ b/lib/adaptive-report.ts
+@@ -1,5 +1,5 @@
+ import {rawResearch} from './research-store';
+-import {ADAPTIVE_POLICY as P,type ExitState} from './adaptive-exits';
++import {ADAPTIVE_POLICY as P,priceConfirmedAt,type ExitState} from './adaptive-exits';
+ export function shapeDistance(a:number[],b:number[]){if(a.length!==b.length||a.length<2)return Infinity;const scale=(v:number[])=>{const m=v.reduce((s,x)=>s+x,0)/v.length,sd=Math.sqrt(v.reduce((s,x)=>s+(x-m)**2,0)/v.length);return v.map(x=>sd?(x-m)/sd:0);};const x=scale(a),y=scale(b);return Math.sqrt(x.reduce((s,v,i)=>s+(v-y[i])**2,0)/x.length);}
+ export async function adaptiveReport(){
+  const raw=rawResearch();
+@@ -14,7 +14,7 @@ export async function adaptiveReport(){
+  raw.prepare("SELECT source,signal_key,direction,interval,json_extract(payload_json,'$.entryRegime') regime,count(*) samples,sum(json_extract(payload_json,'$.net')) net,sum(CASE WHEN quality='chronological_v2' THEN 1 ELSE 0 END) verified FROM trade_reflections WHERE phase='closed' GROUP BY source,signal_key,direction,interval,regime ORDER BY samples DESC LIMIT 100").all<Record<string,unknown>>()
+  ]);
+  const open=positions.results.map((r:{id:number;market:string;variant:string;direction:string;payload_json:string})=>({...r,state:JSON.parse(r.payload_json) as ExitState,payload_json:undefined}));
+- const accounts=(['fixed','trailing','hybrid'] as const).map(variant=>{const r=balances.results.find((x:Record<string,unknown>)=>x.variant===variant)||{},own=open.filter((x:{variant:string})=>x.variant===variant);const unrealized=own.reduce((sum:number,p:{state:ExitState})=>{const s=p.state,sign=s.direction==='long'?1:-1,fill=s.lastPrice*(1-sign*s.slippageRate);return sum+sign*(fill-s.entry)*s.quantity*s.remaining-fill*s.quantity*s.remaining*s.feeRate;},0);return {variant,realized:Number(r.realized||0),cash:P.startingEquity+Number(r.realized||0)-Number(r.reserved||0),risk:Number(r.risk||0),equity:P.startingEquity+Number(r.realized||0)+unrealized,stale:own.filter((p:{state:ExitState})=>Date.now()-p.state.lastPriceAt>1200000).length,ambiguous:Number(r.ambiguous||0),manual:Number(r.manual||0)};});
++ const accounts=(['fixed','trailing','hybrid'] as const).map(variant=>{const r=balances.results.find((x:Record<string,unknown>)=>x.variant===variant)||{},own=open.filter((x:{variant:string})=>x.variant===variant);const unrealized=own.reduce((sum:number,p:{state:ExitState})=>{const s=p.state,sign=s.direction==='long'?1:-1,fill=s.lastPrice*(1-sign*s.slippageRate);return sum+sign*(fill-s.entry)*s.quantity*s.remaining-fill*s.quantity*s.remaining*s.feeRate;},0);return {variant,realized:Number(r.realized||0),cash:P.startingEquity+Number(r.realized||0)-Number(r.reserved||0),risk:Number(r.risk||0),equity:P.startingEquity+Number(r.realized||0)+unrealized,stale:own.filter((p:{state:ExitState})=>Date.now()-priceConfirmedAt(p.state)>1200000).length,ambiguous:Number(r.ambiguous||0),manual:Number(r.manual||0)};});
+  const latest=await raw.prepare('SELECT * FROM history_observations ORDER BY observed_at DESC LIMIT 1').first<{id:number;market:string;interval:string;observed_at:number;features_json:string;outcome_json:string}>();
+  const examples:Array<{id:number;market:string;at:number;path:number[];distance:number;returnPct:number}>=[];
+  if(latest){const f=JSON.parse(latest.features_json);examples.push({id:latest.id,market:latest.market,at:latest.observed_at,path:f.normalized,distance:0,returnPct:JSON.parse(latest.outcome_json).returnPct});
+diff --git a/lib/bitvavo-market-auth.ts b/lib/bitvavo-market-auth.ts
+new file mode 100644
+index 0000000..b9215eb
+--- /dev/null
++++ b/lib/bitvavo-market-auth.ts
+@@ -0,0 +1,71 @@
++import {getDb} from '../db';
++import {credentialValuesForOwner} from './credentials';
++
++/**
++ * Bitvavo counts unauthenticated requests per IP and authenticated requests per account.
++ * Cloudflare Workers share outbound addresses, so public candles are signed with the
++ * owner's read-only key when one is available. The key never leaves the server.
++ */
++export type MarketDataMode='account'|'anonymous';
++type Auth={apiKey:string;apiSecret:string};
++
++const CACHE_MS=5*60_000;
++const REJECTED_PAUSE_MS=30*60_000;
++let cached:{at:number;value:Promise<Auth|null>}|null=null;
++let rejectedUntil=0;
++let rejectedReason='';
++const signingKeys=new Map<string,Promise<CryptoKey>>();
++
++async function automationOwner(){
++ try{
++  const raw=getDb().$client;
++  const row=await raw.prepare('SELECT owner_hash FROM automation_settings WHERE id=1').first<{owner_hash:string}>();
++  if(row?.owner_hash)return row.owner_hash;
++  const vault=await raw.prepare('SELECT owner_hash FROM api_credentials LIMIT 1').first<{owner_hash:string}>();
++  return vault?.owner_hash||'';
++ }catch{return '';}
++}
++
++async function resolveAuth():Promise<Auth|null>{
++ if(String(process.env.BITVAVO_MARKET_DATA_AUTH||'').toLowerCase()==='off')return null;
++ try{
++  const values=await credentialValuesForOwner(await automationOwner(),['BITVAVO_API_KEY','BITVAVO_API_SECRET']);
++  const apiKey=values.BITVAVO_API_KEY?.trim(),apiSecret=values.BITVAVO_API_SECRET?.trim();
++  return apiKey&&apiSecret?{apiKey,apiSecret}:null;
++ }catch{return null;}
++}
++
++async function currentAuth(now=Date.now()){
++ if(now<rejectedUntil)return null;
++ if(!cached||now-cached.at>CACHE_MS)cached={at:now,value:resolveAuth()};
++ return cached.value;
++}
++
++export async function marketDataMode(now=Date.now()):Promise<MarketDataMode>{
++ return (await currentAuth(now))?'account':'anonymous';
++}
++
++export function marketDataRejection(now=Date.now()){
++ return now<rejectedUntil?{until:rejectedUntil,reason:rejectedReason}:null;
++}
++
++/** A rejected key falls back to anonymous requests instead of blocking every candle check. */
++export function rejectMarketDataAuth(status:number,errorCode=NaN,now=Date.now()){
++ rejectedUntil=now+REJECTED_PAUSE_MS;
++ rejectedReason=`Bitvavo weigerde de API-sleutel voor marktdata (HTTP ${status}${Number.isFinite(errorCode)?` · errorCode ${errorCode}`:''}); tijdelijk anoniem.`;
++ cached=null;
++}
++
++export function resetMarketDataAuthForTests(){cached=null;rejectedUntil=0;rejectedReason='';signingKeys.clear();}
++
++function hex(buffer:ArrayBuffer){return [...new Uint8Array(buffer)].map(b=>b.toString(16).padStart(2,'0')).join('');}
++
++export async function marketDataHeaders(url:string,method='GET',now=Date.now()):Promise<Record<string,string>|null>{
++ const auth=await currentAuth(now);if(!auth)return null;
++ const parsed=new URL(url);
++ const timestamp=String(now);
++ let key=signingKeys.get(auth.apiSecret);
++ if(!key){key=crypto.subtle.importKey('raw',new TextEncoder().encode(auth.apiSecret),{name:'HMAC',hash:'SHA-256'},false,['sign']);signingKeys.set(auth.apiSecret,key);}
++ const signature=hex(await crypto.subtle.sign('HMAC',await key,new TextEncoder().encode(timestamp+method.toUpperCase()+parsed.pathname+parsed.search)));
++ return {'Bitvavo-Access-Key':auth.apiKey,'Bitvavo-Access-Signature':signature,'Bitvavo-Access-Timestamp':timestamp,'Bitvavo-Access-Window':'10000'};
++}
+diff --git a/lib/bitvavo-traffic.ts b/lib/bitvavo-traffic.ts
+index 8590a97..6a4ee35 100644
+--- a/lib/bitvavo-traffic.ts
++++ b/lib/bitvavo-traffic.ts
+@@ -1,5 +1,6 @@
+ import {AsyncLocalStorage} from 'node:async_hooks';
+ import {getDb} from '../db';
++import {marketDataMode,marketDataRejection} from './bitvavo-market-auth';
+ 
+ const PUBLIC_ORIGIN='https://api.bitvavo.com';
+ // Conservative application budget, not an assertion about the provider's quota.
+@@ -21,30 +22,40 @@ export class MarketDeferredError extends Error{
+  constructor(reason:string,retryAt:number){super(`Bitvavo: ${reason}; herpoging vanaf ${new Date(retryAt).toISOString()}.`);this.retryAt=retryAt;}
+ }
+ function raw(){try{return getDb().$client;}catch{return null;}}
++/** Anonymous (shared IP) and account-signed requests have separate provider limits and pauses. */
++async function sourceKeys(){
++ const mode=await marketDataMode();
++ return mode==='account'?{mode,cooldown:'bitvavo:cooldown:account',streak:'bitvavo:ban_streak:account'}:{mode,cooldown:'bitvavo:cooldown',streak:'bitvavo:ban_streak'};
++}
+ export async function publicSourceState(now=Date.now()){
+  const db=raw();if(!db)return null;
+- const row=await db.prepare("SELECT expires_at,payload_json FROM public_market_cache WHERE id='bitvavo:cooldown' AND expires_at>?").bind(now).first<{expires_at:number;payload_json:string}>();
++ const {cooldown}=await sourceKeys();
++ const row=await db.prepare("SELECT expires_at,payload_json FROM public_market_cache WHERE id=? AND expires_at>?").bind(cooldown,now).first<{expires_at:number;payload_json:string}>();
+  return row?{retryAt:row.expires_at,reason:String(JSON.parse(row.payload_json).reason||'bronlimiet')}:null;
+ }
+ export async function pausePublicSource(retryAt:number,reason:string){
+  const db=raw();if(!db)return;
+- await db.prepare("INSERT INTO public_market_cache(id,payload_json,expires_at) VALUES('bitvavo:cooldown',?,?) ON CONFLICT(id) DO UPDATE SET payload_json=CASE WHEN excluded.expires_at>=expires_at THEN excluded.payload_json ELSE payload_json END,expires_at=max(expires_at,excluded.expires_at)").bind(JSON.stringify({reason}),retryAt).run();
++ const {cooldown}=await sourceKeys();
++ await db.prepare("INSERT INTO public_market_cache(id,payload_json,expires_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET payload_json=CASE WHEN excluded.expires_at>=expires_at THEN excluded.payload_json ELSE payload_json END,expires_at=max(expires_at,excluded.expires_at)").bind(cooldown,JSON.stringify({reason}),retryAt).run();
+ }
+ export async function recordPublicRateLimit(now:number,providerRetryAt:number|null){
+  const db=raw();let failures=1;
++ const {streak,mode}=await sourceKeys();
+  if(db){
+-  const row=await db.prepare(`INSERT INTO public_market_cache(id,payload_json,expires_at) VALUES('bitvavo:ban_streak',json_object('failures',1,'lastFailureAt',?),?)
++  const row=await db.prepare(`INSERT INTO public_market_cache(id,payload_json,expires_at) VALUES(?,json_object('failures',1,'lastFailureAt',?),?)
+    ON CONFLICT(id) DO UPDATE SET payload_json=json_object('failures',CASE WHEN expires_at<=? THEN 1 ELSE min(9,coalesce(json_extract(payload_json,'$.failures'),0)+1) END,'lastFailureAt',?),expires_at=excluded.expires_at RETURNING payload_json`)
+-   .bind(now,now+7*86400000,now,now).first<{payload_json:string}>();
++   .bind(streak,now,now+7*86400000,now,now).first<{payload_json:string}>();
+   failures=Number(JSON.parse(row?.payload_json||'{}').failures)||1;
+  }
+  const retryAt=bitvavoRetryAt(now,providerRetryAt,failures);
+- await pausePublicSource(retryAt,`HTTP 429 · publieke bronblokkade (${failures} opeenvolgende blokkades)`);
++ await pausePublicSource(retryAt,`HTTP 429 · ${mode==='account'?'accountlimiet eigen API-sleutel':'publieke bronblokkade (gedeeld IP)'} (${failures} opeenvolgende blokkades)`);
+  return retryAt;
+ }
+ export async function recordPublicSuccess(requestStartedAt:number){
+  // A late success must not erase a newer concurrent ban from another Worker.
+- const db=raw();if(db)await db.prepare("DELETE FROM public_market_cache WHERE id='bitvavo:ban_streak' AND json_extract(payload_json,'$.lastFailureAt')<?").bind(requestStartedAt).run();
++ const db=raw();if(!db)return;
++ const {streak}=await sourceKeys();
++ await db.prepare("DELETE FROM public_market_cache WHERE id=? AND json_extract(payload_json,'$.lastFailureAt')<?").bind(streak,requestStartedAt).run();
+ }
+ export async function reservePublicRequest(now=Date.now()){
+  const db=raw();if(!db)return;
+@@ -68,7 +79,8 @@ export async function queuedPublicRequest<T>(work:()=>Promise<T>):Promise<T>{
+  finally{pending--;release();}
+ }
+ export async function trafficSnapshot(now=Date.now()){
+- const db=raw();if(!db)return {cooldown:null,requests:0,limit:PUBLIC_REQUESTS_PER_MINUTE,backgroundLimit:BACKGROUND_REQUESTS_PER_MINUTE};
++ const marketData={mode:await marketDataMode(now),rejected:marketDataRejection(now)};
++ const db=raw();if(!db)return {cooldown:null,requests:0,limit:PUBLIC_REQUESTS_PER_MINUTE,backgroundLimit:BACKGROUND_REQUESTS_PER_MINUTE,marketData};
+  const row=await db.prepare('SELECT payload_json FROM public_market_cache WHERE id=?').bind('bitvavo:budget:'+Math.floor(now/60_000)).first<{payload_json:string}>();
+- return {cooldown:await publicSourceState(now),requests:Number(row?.payload_json||0),limit:PUBLIC_REQUESTS_PER_MINUTE,backgroundLimit:BACKGROUND_REQUESTS_PER_MINUTE};
++ return {cooldown:await publicSourceState(now),requests:Number(row?.payload_json||0),limit:PUBLIC_REQUESTS_PER_MINUTE,backgroundLimit:BACKGROUND_REQUESTS_PER_MINUTE,marketData};
+ }
+diff --git a/lib/chart-engine.ts b/lib/chart-engine.ts
+index 6f50134..df10072 100644
+--- a/lib/chart-engine.ts
++++ b/lib/chart-engine.ts
+@@ -1,4 +1,4 @@
+-import {LEARNING_PREFIX,candleCoverage} from "./research-policy";
++import {LEARNING_PREFIX,sourceConfirmedCoverage,type MinuteCoverage} from "./research-policy";
+ import {publicMarketJson,shortenPublicCache} from "./public-market-cache";
+ import {assertPriceContinuity} from './candle-quality';
+ import { like, desc } from "drizzle-orm";
+@@ -251,7 +251,7 @@ export type MinuteCandleRange = {
+   from: number;
+   to: number;
+   complete: boolean;
+-  coverage?: ReturnType<typeof candleCoverage>;
++  coverage?: MinuteCoverage;
+ };
+ 
+ /**
+@@ -271,12 +271,15 @@ export async function fetchBitvavoMinuteCandlesRange(
+   if (!safeMarket.endsWith("-EUR"))
+     throw new Error("Tradebewaking ondersteunt nu Bitvavo-EUR-markten.");
+   if (![startMs, endMs].every(Number.isFinite) || endMs <= startMs)
+-    return { candles: [], from: startMs, to: endMs, complete: true };
++    return { candles: [], from: startMs, to: endMs, complete: true,
++      // A position already processed up to its end has nothing left to fetch; its window stays confirmed.
++      ...(Number.isFinite(startMs) && endMs === startMs ? { coverage: sourceConfirmedCoverage([], startMs, startMs, 60_000) } : {}) };
+ 
+   const minute = 60_000;
+   const from = Math.max(0, Math.floor(startMs / minute) * minute);
+   const requestedTo = Math.floor(Math.min(endMs,Date.now()) / minute) * minute;
+-  if(requestedTo<=from)return {candles:[],from,to:from,complete:true};
++  // Nothing new has closed since the last processed minute; that processed window stays confirmed.
++  if(requestedTo<=from)return {candles:[],from,to:from,complete:true,coverage:sourceConfirmedCoverage([],from,from,minute)};
+   const maxMinutes = Math.max(1, Math.min(43_200, Math.trunc(maximumMinutes)));
+   const to = Math.min(requestedTo, from + maxMinutes * minute);
+   const cacheKey = `${safeMarket}:1m:${from}:${to}`;
+@@ -330,7 +333,8 @@ export async function fetchBitvavoMinuteCandlesRange(
+       if(pageSeen.size<(chunkEnd-cursor)/minute)await shortenPublicCache(pageUrl);
+     }
+     return {
+-      coverage: candleCoverage([...merged.values()],from,to,minute),
++      // Every page in [from,to) was received; absent minutes had no trades on Bitvavo.
++      coverage: sourceConfirmedCoverage([...merged.values()],from,to,minute),
+       candles: [...merged.values()].sort(
+         (left, right) => left.timestamp - right.timestamp,
+       ),
+diff --git a/lib/focused-engine.ts b/lib/focused-engine.ts
+index c8eacd5..ceedd07 100644
+--- a/lib/focused-engine.ts
++++ b/lib/focused-engine.ts
+@@ -1,10 +1,10 @@
+ import {rawResearch,withResearchLock} from './research-store';
+-import {FOCUSED_POLICY as P,EXECUTION_POLICY as E,executionPlan,candleCoverage} from './research-policy';
++import {FOCUSED_POLICY as P,EXECUTION_POLICY as E,executionPlan,candleCoverage,minuteRangeCoverage} from './research-policy';
+ import {fetchBitvavoCandles,fetchBitvavoMinuteCandlesRange} from './chart-engine';
+ import {availableBitvavoMarkets} from './public-market-cache';
+ import {evaluateStrategySignals,strategyRiskPlan,type StrategyHit} from './strategy-signals';
+ import {classifyRegime,type Regime} from './market-regime';
+-import {initialExitState,type ExitState} from './adaptive-exits';
++import {initialExitState,priceConfirmedAt,type ExitState} from './adaptive-exits';
+ import {pilotAdmission,pilotFold,type PilotRow} from './pilot-engine';
+ import {classifyWorkError} from './task-outcome';
+ import {MarketDeferredError} from './bitvavo-traffic';
+@@ -68,7 +68,7 @@ function bookAdmission(rows:PilotRow[],market:string,legs:Array<{state:ExitState
+   const own=rows.filter(r=>r.variant===leg.state.variant).map(r=>({...r,state:JSON.parse(r.payload_json) as ExitState}));
+   const open=own.filter(r=>r.status==='open'),losses=own.filter(r=>r.status!=='open'&&r.state.realized<0&&r.state.through>=now-86400000);
+   const reason=pilotAdmission({openMarket:rows.some(r=>r.market===market&&r.status==='open'),conflict,
+-   stale:open.some(r=>now-r.state.through>1200000||now-r.state.lastPriceAt>1200000||r.quality!=='continuous'&&r.quality!=='pending'),
++   stale:open.some(r=>now-r.state.through>1200000||now-priceConfirmedAt(r.state)>1200000||r.quality!=='continuous'&&r.quality!=='pending'),
+    lossDay:losses.reduce((n,r)=>n-r.state.realized,0),lossCoin:losses.filter(r=>r.market===market).reduce((n,r)=>n-r.state.realized,0),
+    lastLossAt:Math.max(0,...own.filter(r=>r.market===market&&r.status!=='open'&&r.state.realized<0).map(r=>r.state.through)),now,
+    cash:P.startingEquity+own.reduce((n,r)=>n+r.state.realized-r.state.reserved,0),openRisk:open.reduce((n,r)=>n+r.risk_eur,0),risk:leg.risk,notional:leg.state.notional});
+@@ -118,7 +118,7 @@ export async function runFocusedCycle(){return withResearchLock('pilot26',async(
+     let legs:Array<{state:ExitState;risk:number}>=[];
+     if(!reason){
+      const end=Math.floor(Date.now()/60000)*60000,quotes=await fetchBitvavoMinuteCandlesRange(market,end-300000,end,5),quote=quotes.candles.at(-1);
+-     if(!quote||candleCoverage(quotes.candles,quotes.from,quotes.to,60000).quality!=='continuous')throw Error('Recente instapreeks onvolledig.');
++     if(!quote||minuteRangeCoverage(quotes).quality!=='continuous')throw Error('Recente instapreeks onvolledig.');
+      let built:ReturnType<typeof focusedLegs>|undefined;
+      try{built=focusedLegs(hit,quote.close,quote.timestamp+60000,Date.now(),cohort);}
+      catch(error){reason=error instanceof Error?error.message:'Instapplan ongeldig';}
+diff --git a/lib/integrations.ts b/lib/integrations.ts
+index 86bfb8a..496204a 100644
+--- a/lib/integrations.ts
++++ b/lib/integrations.ts
+@@ -1,4 +1,5 @@
+-import {isPublicBitvavo,recordPublicRateLimit,recordPublicSuccess,reservePublicRequest,pausePublicSource,queuedPublicRequest} from './bitvavo-traffic';
++import {isPublicBitvavo,recordPublicRateLimit,recordPublicSuccess,reservePublicRequest,pausePublicSource,queuedPublicRequest,publicSourceState,MarketDeferredError} from './bitvavo-traffic';
++import {marketDataHeaders,rejectMarketDataAuth} from './bitvavo-market-auth';
+ export type IntegrationState={id:string;name:string;category:string;status:"active"|"limited"|"needs_key"|"planned";detail:string;env?:string[]};
+ 
+ export function integrationStates(values:Partial<Record<string,string>>={}):IntegrationState[]{
+@@ -97,16 +98,31 @@ async function fetchJsonRequest(url:string,init:RequestInit,timeout:number,maxim
+     const requestStartedAt=Date.now();
+     const cooldown = fetchCooldownState(url,Date.now(),init);
+     if (cooldown.blocked) throw new HttpStatusError(429, cooldown.retryAt);
+-    if(isPublicBitvavo(url,init)) await reservePublicRequest();
++    const publicBitvavo=isPublicBitvavo(url,init);
++    if(publicBitvavo) await reservePublicRequest();
+     const controller = new AbortController();
+     const timer = setTimeout(() => controller.abort(), timeout);
+     try {
+       const headers=new Headers(init.headers);if(!headers.has('accept'))headers.set('accept','application/json');
+-      const response = await fetch(url, {
++      // Market data stays in the public budget and cache; only the provider's rate-limit identity changes.
++      const signed=publicBitvavo&&method==='GET'?await marketDataHeaders(url):null;
++      if(signed)for(const [name,value] of Object.entries(signed))headers.set(name,value);
++      let response = await fetch(url, {
+         ...init,
+         signal: controller.signal,
+         headers,
+       });
++      if(signed&&(response.status===401||response.status===403)){
++        const body=await response.text().catch(()=>'');
++        let errorCode=NaN;try{errorCode=Number((JSON.parse(body) as {errorCode?:unknown})?.errorCode);}catch{/* HTML block page, not a key error */}
++        if(response.status===401||(errorCode>=300&&errorCode<400)){
++          rejectMarketDataAuth(response.status,errorCode);
++          const anonymousPause=await publicSourceState();
++          if(anonymousPause)throw new MarketDeferredError(anonymousPause.reason,anonymousPause.retryAt);
++          for(const name of Object.keys(signed))headers.delete(name);
++          response = await fetch(url, {...init, signal: controller.signal, headers});
++        } else response=new Response(body,{status:response.status,headers:response.headers});
++      }
+       if (response.ok) {
+         if(isPublicBitvavo(url,init)) {
+           await recordPublicSuccess(requestStartedAt);
+diff --git a/lib/pilot-engine.ts b/lib/pilot-engine.ts
+index 2df9d73..8b7d5fc 100644
+--- a/lib/pilot-engine.ts
++++ b/lib/pilot-engine.ts
+@@ -4,8 +4,8 @@ import {availableBitvavoMarkets} from './public-market-cache';
+ import {evaluateStrategySignals,strategyRiskPlan,type StrategyHit} from './strategy-signals';
+ import {historyFeatures} from './history-research';
+ import {classifyRegime} from './market-regime';
+-import {initialExitState,advanceExit,type ExitState,type ExitVariant} from './adaptive-exits';
+-import {PILOT_POLICY as P,EXECUTION_POLICY as E,RESEARCH_VERSION,candleCoverage,executionPlan} from './research-policy';
++import {initialExitState,advanceExit,priceConfirmedAt,type ExitState,type ExitVariant} from './adaptive-exits';
++import {PILOT_POLICY as P,EXECUTION_POLICY as E,RESEARCH_VERSION,candleCoverage,minuteRangeCoverage,executionPlan} from './research-policy';
+ import {classifyWorkError,retryForError} from './task-outcome';
+ import {assertPriceContinuity} from './candle-quality';
+ import {entryReviewContext} from './entry-review-context';
+@@ -69,7 +69,7 @@ export async function runPilotCycle(){return withResearchLock('pilot26',async()=
+     regimeFilterApplied:false};
+    if(quality.quality!=='continuous')throw Error('Signaalreeks bevat onverklaarde ontbrekende candles.');
+    const end=Math.floor(now/60000)*60000,quotes=await fetchBitvavoMinuteCandlesRange(market,end-5*60000,end,5),quote=quotes.candles.at(-1);
+-   if(!quote||candleCoverage(quotes.candles,quotes.from,quotes.to,60000).quality!=='continuous')throw Error('Recente instapreeks onvolledig.');
++   if(!quote||minuteRangeCoverage(quotes).quality!=='continuous')throw Error('Recente instapreeks onvolledig.');
+    const plan=strategyRiskPlan(hit),execution=executionPlan({direction:'short',signalAt:hit.candleTimestamp+3600000,signalPrice:hit.entryPrice,quoteAt:quote.timestamp+60000,price:quote.close,stop:plan.stopPrice,target:plan.targetPrice,atr:hit.atr,now:Date.now(),riskBudget:P.riskPerIdea,maxNotional:P.maxNotional});
+    evidence={...evidence,execution,targetPlan:plan};
+    const all=(await raw.prepare(`SELECT p.* FROM pilot_positions p JOIN pilot_ideas i ON i.id=p.idea_id WHERE i.version=?`).bind(P.version).all<PilotRow>()).results as PilotRow[];
+@@ -78,7 +78,7 @@ export async function runPilotCycle(){return withResearchLock('pilot26',async()=
+     const open=rows.filter(r=>r.status==='open'),losses=rows.filter(r=>r.status!=='open'&&r.state.realized<0&&r.state.through>=now-86400000);
+     return {cash:P.startingEquity+rows.reduce((n,r)=>n+r.state.realized-r.state.reserved,0),risk:open.reduce((n,r)=>n+r.risk_eur,0),
+      lossDay:losses.reduce((n,r)=>n-r.state.realized,0),lossCoin:losses.filter(r=>r.market===market).reduce((n,r)=>n-r.state.realized,0),
+-     stale:open.some(r=>now-r.state.through>20*60000||now-r.state.lastPriceAt>20*60000||r.quality==='gaps_unresolved'),
++     stale:open.some(r=>now-r.state.through>20*60000||now-priceConfirmedAt(r.state)>20*60000||r.quality==='gaps_unresolved'),
+      lastLossAt:Math.max(0,...rows.filter(r=>r.market===market&&r.status!=='open'&&r.state.realized<0).map(r=>r.state.through))};
+    });
+    const reason=pilotAdmission({openMarket:all.some(r=>r.market===market&&r.status==='open'),stale:accountStates.some(a=>a.stale),
+@@ -103,11 +103,11 @@ export async function monitorPilotPositions(){return withResearchLock('pilot26',
+   try{
+    const s=JSON.parse(row.payload_json) as ExitState,to=Math.floor(Math.min(now,s.expiresAt)/60000)*60000;
+    const range=await fetchBitvavoMinuteCandlesRange(row.market,s.through,to,720);
+-   if(!range.candles.length)throw Error('Geen gesloten candles; verwerking blijft open.');
++   const coverage=minuteRangeCoverage(range);
++   if(!range.candles.length&&!coverage.sourceConfirmed)throw Error('Geen gesloten candles; verwerking blijft open.');
+    assertPriceContinuity(range.candles,s.lastPrice);
+-   const coverage=candleCoverage(range.candles,range.from,range.to,60000);
+    const quality=row.quality==='invalid_data'?'invalid_data':row.quality==='gaps_unresolved'||coverage.quality!=='continuous'?'gaps_unresolved':'continuous';
+-   const next=advanceExit(s,range.candles,range.complete?now:range.to);
++   const next=advanceExit(s,range.candles,range.complete?now:range.to,coverage.sourceConfirmed?range.to:undefined);
+    if(next.status==='open')next.through=range.to;
+    const payload=JSON.stringify({...next,events:[]}),closedAt=next.status!=='open'?new Date(next.through).toISOString():null;
+    const writes=[raw.prepare('UPDATE pilot_positions SET status=?,payload_json=?,revision=revision+1,quality=?,closed_at=?,next_attempt=?,failures=0,error=? WHERE id=? AND revision=?')
+diff --git a/lib/portfolio-risk.ts b/lib/portfolio-risk.ts
+index bdfc6eb..bba80b9 100644
+--- a/lib/portfolio-risk.ts
++++ b/lib/portfolio-risk.ts
+@@ -1,4 +1,4 @@
+-import type {ExitState} from './adaptive-exits';
++import {priceConfirmedAt,type ExitState} from './adaptive-exits';
+ import type {CandleLike} from './research-policy';
+ 
+ /** Frozen prospective experiment. A rule change requires a new version. */
+@@ -31,7 +31,7 @@ export function bookRisk(rows:BookPosition[],now=Date.now()){
+  const open=rows.filter(p=>p.state.status==='open');
+  const sum=(f:(p:BookPosition)=>number)=>open.reduce((a,p)=>a+f(p),0);
+  const long=sum(p=>p.state.direction==='long'?p.risk*p.state.remaining:0),short=sum(p=>p.state.direction==='short'?p.risk*p.state.remaining:0);
+- const stale=open.some(p=>now-p.state.lastPriceAt>RISK_POLICY.maxAgeMs||now-p.state.through>RISK_POLICY.maxAgeMs||!['continuous','pending'].includes(p.quality));
++ const stale=open.some(p=>now-priceConfirmedAt(p.state)>RISK_POLICY.maxAgeMs||now-p.state.through>RISK_POLICY.maxAgeMs||!['continuous','pending'].includes(p.quality));
+  return {open:open.length,longRisk:long,shortRisk:short,grossRisk:long+short,
+   longNotional:sum(p=>p.state.direction==='long'?p.state.quantity*p.state.remaining*p.state.lastPrice:0),
+   shortNotional:sum(p=>p.state.direction==='short'?p.state.quantity*p.state.remaining*p.state.lastPrice:0),
+diff --git a/lib/post-trade-store.ts b/lib/post-trade-store.ts
+index bb91459..62030bf 100644
+--- a/lib/post-trade-store.ts
++++ b/lib/post-trade-store.ts
+@@ -3,7 +3,7 @@ import {rawResearch,withResearchLock} from './research-store';
+ import {fetchBitvavoMinuteCandlesRange} from './chart-engine';
+ import {guardNewResearch} from './research-health';
+ import {classifyWorkError,retryForError} from './task-outcome';
+-import {candleCoverage,EXECUTION_POLICY} from './research-policy';
++import {minuteRangeCoverage,EXECUTION_POLICY} from './research-policy';
+ import {assertPriceContinuity} from './candle-quality';
+ import {analysePostTrade,contextLevels,limitedReview,MINUTE,REVIEW_HOURS,REVIEW_VERSION,type ReviewTrade,type Review} from './post-trade-analysis';
+ import type {ExitState} from './adaptive-exits';
+@@ -111,7 +111,7 @@ export async function runPostTradeBatch(limit=3){return withResearchLock('post-t
+      await guardNewResearch();
+      const range=await fetchBitvavoMinuteCandlesRange(t.market,pageStart,Math.min(pageStart+PAGE,Math.floor(now/MINUTE)*MINUTE),720);
+      assertPriceContinuity(range.candles);
+-     if(candleCoverage(range.candles,range.from,range.to,MINUTE).quality!=='continuous')throw Error('Koerspad bevat ontbrekende candles; nabeschouwing wacht op bronherstel.');
++     if(minuteRangeCoverage(range).quality!=='continuous')throw Error('Koerspad bevat ontbrekende candles; nabeschouwing wacht op bronherstel.');
+      path={start_at:range.from,through:range.to,candles_json:pack(range.candles)};
+      // Do not overwrite data already referenced by an earlier 1h/4h review.
+      await raw.prepare('INSERT OR IGNORE INTO post_trade_paths(market,start_at,through,candles_json,created_at) VALUES(?,?,?,?,?)').bind(t.market,path.start_at,path.through,path.candles_json,new Date().toISOString()).run();
+diff --git a/lib/public-market-cache.ts b/lib/public-market-cache.ts
+index f4aeddd..c61d496 100644
+--- a/lib/public-market-cache.ts
++++ b/lib/public-market-cache.ts
+@@ -1,5 +1,6 @@
+ import {getDb} from "../db";
+ import {fetchJson, HttpStatusError} from "./integrations";
++import {publicSourceState} from "./bitvavo-traffic";
+ 
+ /** Only explicitly public Bitvavo data. Credentials and private requests never enter this cache. */
+ const inflight=new Map<string,Promise<unknown>>();
+@@ -18,8 +19,8 @@ async function loadPublicMarketJson(url:string,ttlMs:number):Promise<unknown> {
+   if(raw) {
+     const cached=await raw.prepare("SELECT payload_json FROM public_market_cache WHERE id=? AND expires_at>?").bind(key,now).first<{payload_json:string}>();
+     if(cached) return JSON.parse(cached.payload_json);
+-    const blocked=await raw.prepare("SELECT expires_at FROM public_market_cache WHERE id='bitvavo:cooldown' AND expires_at>?").bind(now).first<{expires_at:number}>();
+-    if(blocked) throw new HttpStatusError(429,blocked.expires_at,"Bitvavo · opgeslagen bronpauze");
++    const blocked=await publicSourceState(now);
++    if(blocked) throw new HttpStatusError(429,blocked.retryAt,"Bitvavo · opgeslagen bronpauze");
+   }
+   try {
+     const result=await fetchJson(url,{},8_000,1);
+diff --git a/lib/research-equity.ts b/lib/research-equity.ts
+index e463ce7..60fe356 100644
+--- a/lib/research-equity.ts
++++ b/lib/research-equity.ts
+@@ -1,11 +1,11 @@
+ import {rawResearch,withResearchLock} from './research-store';
+ import {PILOT_POLICY as P,FOCUSED_POLICY as F} from './research-policy';
+-import type {ExitState,ExitVariant} from './adaptive-exits';
++import {priceConfirmedAt,type ExitState,type ExitVariant} from './adaptive-exits';
+ function markValue(s:ExitState){const sign=s.direction==='long'?1:-1,p=s.lastPrice*(1-sign*s.slippageRate);return s.status==='open'?sign*(p-s.entry)*s.quantity*s.remaining-p*s.quantity*s.remaining*s.feeRate:0;}
+ export type BookRow={variant:ExitVariant;state:ExitState;quality:string;risk:number};
+ export function accountSnapshot(rows:BookRow[],at:number){
+  const open=rows.filter(r=>r.state.status==='open'),realized=rows.reduce((a,r)=>a+r.state.realized,0),unrealized=open.reduce((a,r)=>a+markValue(r.state),0);
+- const uncertain=open.some(r=>r.quality!=='continuous'||at-r.state.lastPriceAt>20*60000||at-r.state.through>20*60000)||rows.some(r=>r.state.status==='ambiguous'||!['continuous','pending'].includes(r.quality));
++ const uncertain=open.some(r=>r.quality!=='continuous'||at-priceConfirmedAt(r.state)>20*60000||at-r.state.through>20*60000)||rows.some(r=>r.state.status==='ambiguous'||!['continuous','pending'].includes(r.quality));
+  return {equity:P.startingEquity+realized+unrealized,cash:P.startingEquity+realized-rows.reduce((a,r)=>a+r.state.reserved,0),realized,unrealized,openRisk:open.reduce((a,r)=>a+r.risk,0),openCount:open.length,quality:uncertain?'uncertain':'verified',oldestPriceAt:open.length?Math.min(...open.map(r=>r.state.lastPriceAt)):null};
+ }
+ export async function recordEquity(){return withResearchLock('pilot26',async()=>{
+diff --git a/lib/research-policy.ts b/lib/research-policy.ts
+index ee16775..0a47e01 100644
+--- a/lib/research-policy.ts
++++ b/lib/research-policy.ts
+@@ -50,6 +50,25 @@ export function candleCoverage(rows:CandleLike[],from:number,to:number,ms:number
+     explanation:missing?'Ontbrekende intervallen: geen handel en ontbrekende brondata zijn niet onderscheiden.':null};
+ }
+ 
++/**
++ * v26.6.1: Bitvavo publishes no 1m candle for a minute without trades. Inside a window that was
++ * fully received from Bitvavo, such a minute is a confirmed quiet minute: nothing traded, so no
++ * paper stop or target can fill there. Invalid or duplicate rows still reject the window.
++ */
++export const COVERAGE_POLICY={version:'coverage26_6_1-v1',
++  rule:'Minuten zonder Bitvavo-candle binnen een volledig ontvangen bronvenster zijn minuten zonder handel, geen ontbrekende data.'} as const;
++export type MinuteCoverage=ReturnType<typeof candleCoverage>&{quietMinutes?:number;sourceConfirmed?:boolean;policy?:string};
++export function sourceConfirmedCoverage(rows:CandleLike[],from:number,to:number,ms:number):MinuteCoverage {
++  const base=candleCoverage(rows,from,to,ms);
++  if(base.quality==='invalid')return {...base,quietMinutes:0,sourceConfirmed:true,policy:COVERAGE_POLICY.version};
++  return {...base,missing:0,quality:'continuous',quietMinutes:base.missing,sourceConfirmed:true,policy:COVERAGE_POLICY.version,
++    explanation:base.missing?`${base.missing} minuten zonder handel op Bitvavo; bronvenster volledig ontvangen.`:null};
++}
++/** Uses the source-confirmed coverage of a fetched minute range when it is available. */
++export function minuteRangeCoverage(range:{candles:CandleLike[];from:number;to:number;coverage?:MinuteCoverage}):MinuteCoverage {
++  return range.coverage??candleCoverage(range.candles,range.from,range.to,60000);
++}
++
+ export function executionPlan(i:{direction:'long'|'short';signalAt:number;signalPrice:number;quoteAt:number;price:number;stop:number;target:number;atr:number;now:number;riskBudget?:number;maxNotional?:number}) {
+   const p=EXECUTION_POLICY,sign=i.direction==='long'?1:-1;
+   if(!Object.values(i).every(v=>typeof v==='string'||Number.isFinite(v))||i.price<=0||i.atr<=0||i.stop<=0||i.target<=0)throw Error('Ongeldig instapplan.');
+diff --git a/lib/research-report.ts b/lib/research-report.ts
+index 0664517..28b405f 100644
+--- a/lib/research-report.ts
++++ b/lib/research-report.ts
+@@ -1,6 +1,6 @@
+ import {rawResearch} from './research-store';
+ import {PILOT_POLICY as P,RESEARCH_VERSION,LEARNING_PREFIX,learningEligible} from './research-policy';
+-import type {ExitState} from './adaptive-exits';
++import {priceConfirmedAt,type ExitState} from './adaptive-exits';
+ import type {PilotRow} from './pilot-engine';
+ import {forecastBenchmark} from './forecast-benchmark';
+ 
+@@ -40,7 +40,7 @@ export async function researchReport(){
+   const paired=pairs.map(g=>g.find(r=>r.variant===variant)!);
+   return {variant,equity:P.startingEquity+realized+unrealized,realized,unrealized,cash:P.startingEquity+realized-own.reduce((a,r)=>a+r.state.reserved,0),
+    openRisk:open.reduce((a,r)=>a+r.risk_eur,0),open:open.length,closed:closed.length,excluded:closed.length-scored.length,
+-   stale:open.filter(r=>now-r.state.lastPriceAt>20*60000||now-r.state.through>20*60000).length,
++   stale:open.filter(r=>now-priceConfirmedAt(r.state)>20*60000||now-r.state.through>20*60000).length,
+    paired:resultStats(paired.map(r=>r.state.realized/r.risk_eur)),descriptive:resultStats(scored.map(r=>r.state.realized/r.risk_eur))};
+  });
+  const valid=tradeRows.filter(r=>learningEligible({strategyKey:String(r.strategy_key),status:String(r.status),pathQuality:String(r.path_quality),evidenceJson:String(r.evidence_json)}));
+diff --git a/lib/research-shadows.ts b/lib/research-shadows.ts
+index 5eff025..5f9da69 100644
+--- a/lib/research-shadows.ts
++++ b/lib/research-shadows.ts
+@@ -1,5 +1,5 @@
+ import {rawResearch,withResearchLock} from './research-store';
+-import {PILOT_POLICY as P,EXECUTION_POLICY as E,candleCoverage} from './research-policy';
++import {PILOT_POLICY as P,EXECUTION_POLICY as E,minuteRangeCoverage} from './research-policy';
+ import {initialExitState,advanceExit,type ExitState} from './adaptive-exits';
+ import {fetchBitvavoMinuteCandlesRange} from './chart-engine';
+ import {classifyWorkError,retryForError} from './task-outcome';
+@@ -16,10 +16,11 @@ export async function runResearchShadows(){return withResearchLock('research-sha
+  const rows=(await raw.prepare("SELECT * FROM research_shadows WHERE status='open' AND next_attempt<=? ORDER BY json_extract(payload_json,'$.through'),id LIMIT 3").bind(now).all<{id:number;market:string;payload_json:string;quality:string;revision:number;failures:number}>()).results as {id:number;market:string;payload_json:string;quality:string;revision:number;failures:number}[];
+  let checked=0,skipped=0;const failures:Array<Record<string,unknown>>=[];
+  for(const r of rows){try{const s=JSON.parse(r.payload_json) as ExitState,end=Math.floor(Math.min(now,s.expiresAt)/60000)*60000,range=await fetchBitvavoMinuteCandlesRange(r.market,s.through,end,720);
+-  if(!range.candles.length)throw Error('Nog geen bruikbaar koerspad');
++  const coverage=minuteRangeCoverage(range);
++  if(!range.candles.length&&!coverage.sourceConfirmed)throw Error('Nog geen bruikbaar koerspad');
+   assertPriceContinuity(range.candles,s.lastPrice);
+-  const quality=r.quality==='gaps_unresolved'||candleCoverage(range.candles,range.from,range.to,60000).quality!=='continuous'?'gaps_unresolved':'continuous';
+-  const next=advanceExit(s,range.candles,range.complete?now:range.to);if(next.status==='open')next.through=range.to;
++  const quality=r.quality==='gaps_unresolved'||coverage.quality!=='continuous'?'gaps_unresolved':'continuous';
++  const next=advanceExit(s,range.candles,range.complete?now:range.to,coverage.sourceConfirmed?range.to:undefined);if(next.status==='open')next.through=range.to;
+   await raw.prepare('UPDATE research_shadows SET status=?,payload_json=?,quality=?,revision=revision+1,failures=0,error=?,next_attempt=? WHERE id=? AND revision=?').bind(next.status,JSON.stringify({...next,events:[]}),quality,'',now+900000,r.id,r.revision).run();checked++;
+  }catch(e){skipped++;const outcome=classifyWorkError(e);failures.push({market:r.market,error:outcome.reason,workStatus:outcome.status});await raw.prepare('UPDATE research_shadows SET failures=failures+1,error=?,next_attempt=? WHERE id=? AND revision=?').bind(outcome.reason,retryForError(e,r.failures+1,now),r.id,r.revision).run();}}
+  return {checked,skipped,failures,created:ideas.length};
+diff --git a/lib/risk-engine.ts b/lib/risk-engine.ts
+index 586a081..66996a1 100644
+--- a/lib/risk-engine.ts
++++ b/lib/risk-engine.ts
+@@ -1,5 +1,5 @@
+ import {rawResearch,withResearchLock} from './research-store';
+-import {FOCUSED_POLICY,EXECUTION_POLICY,candleCoverage,type CandleLike} from './research-policy';
++import {FOCUSED_POLICY,EXECUTION_POLICY,minuteRangeCoverage,type CandleLike} from './research-policy';
+ import {advanceExit,type ExitState,type ExitEvent} from './adaptive-exits';
+ import {fetchBitvavoMinuteCandlesRange} from './chart-engine';
+ import {assertPriceContinuity} from './candle-quality';
+@@ -56,7 +56,7 @@ export function queueNewsProtection(state:RiskState,events:MacroEvent[],now:numb
+  if(state.lastNewsAt&&now-state.lastNewsAt<30*60000)return {...state,newsSeen:seen};
+  return {...state,newsSeen:seen,lastNewsAt:now,pendingNews:{id:e.id,eventKey:e.eventKey,effectiveAt:(Math.floor(now/60000)+1)*60000,decidedAt:now,eventAt:e.at}};
+ }
+-export function advanceRisk(previous:RiskState,bars:CandleLike[],asOf:number,risk:number,calendar?:MacroEvent[]):RiskState{
++export function advanceRisk(previous:RiskState,bars:CandleLike[],asOf:number,risk:number,calendar?:MacroEvent[],confirmedThrough?:number):RiskState{
+  let s:RiskState={...previous,events:[]};const events:ExitEvent[]=[];
+  for(const c of bars){
+   if(s.status!=='open')break;
+@@ -74,7 +74,7 @@ export function advanceRisk(previous:RiskState,bars:CandleLike[],asOf:number,ris
+   }
+   const next=advanceExit({...s,events:[]},[c],c.timestamp+60000);events.push(...next.events);s={...s,...next,events:[]};
+  }
+- if(s.status==='open'&&asOf>=s.expiresAt){const next=advanceExit({...s,events:[]},[],asOf);events.push(...next.events);s={...s,...next};}
++ if(s.status==='open'&&(asOf>=s.expiresAt||confirmedThrough!=null)){const next=advanceExit({...s,events:[]},[],asOf,confirmedThrough);events.push(...next.events);s={...s,...next};}
+  return {...s,events};
+ }
+ 
+@@ -90,9 +90,10 @@ export async function monitorRiskPositions(){return withResearchLock('portfolio-
+    let next=state,rangeTo=state.through,complete=true;
+    if(to>state.through){
+     const range=await fetchBitvavoMinuteCandlesRange(row.market,state.through,to,720);rangeTo=range.to;complete=range.complete;
+-    if(!range.candles.length||candleCoverage(range.candles,range.from,range.to,60000).quality!=='continuous')throw Error('Ontbrekende candles; paperpad wordt niet overgeslagen.');
+-    assertPriceContinuity(range.candles,state.lastPrice);next=advanceRisk(state,range.candles,range.complete?now:range.to,row.risk_eur,events);
+-   }
++    const coverage=minuteRangeCoverage(range);
++    if((!range.candles.length&&!coverage.sourceConfirmed)||coverage.quality!=='continuous')throw Error('Ontbrekende candles; paperpad wordt niet overgeslagen.');
++    assertPriceContinuity(range.candles,state.lastPrice);next=advanceRisk(state,range.candles,range.complete?now:range.to,row.risk_eur,events,coverage.sourceConfirmed?range.to:undefined);
++   }else if(state.status==='open'&&now>=state.expiresAt)next=advanceRisk(state,[],now,row.risk_eur,events,state.through);
+    if(next.status==='open')next={...next,through:rangeTo};
+    if(row.version===P.version&&row.arm==='profit_guard'&&complete)next=queueNewsProtection(next,events,Date.now());
+    const payload=JSON.stringify({...next,events:[]});
+diff --git a/lib/strategy-engine.ts b/lib/strategy-engine.ts
+index 51b37e8..5d9df15 100644
+--- a/lib/strategy-engine.ts
++++ b/lib/strategy-engine.ts
+@@ -1,5 +1,5 @@
+ import {entryReviewContext} from './entry-review-context';
+-import {STRATEGY_EPOCH,LEARNING_PREFIX,EXECUTION_POLICY,executionPlan,exitFill,learningEligible,candleCoverage} from "./research-policy";
++import {STRATEGY_EPOCH,LEARNING_PREFIX,EXECUTION_POLICY,executionPlan,exitFill,learningEligible,candleCoverage,minuteRangeCoverage} from "./research-policy";
+ import {classifyWorkError,retryForError} from './task-outcome';
+ import {evaluateMonthlyVwapSignals} from "./monthly-vwap";
+ import {fetchMonthlyVwapCandles} from "./monthly-vwap-source";
+@@ -471,7 +471,7 @@ async function openStrategyTrial(
+   if(!latest)throw Error("Geen recente instapkoers.");
+   const execution=executionPlan({direction:hit.direction,signalAt:hit.candleTimestamp+(hit.interval==='4h'?14400000:3600000),signalPrice:hit.entryPrice,
+     quoteAt:latest.timestamp+60000,price:latest.close,stop:originalPlan.stopPrice,target:originalPlan.targetPrice,atr:hit.atr,now:Date.now()});
+-  const dataQuality=candleCoverage(quote.candles,quote.from,quote.to,60000);
++  const dataQuality=minuteRangeCoverage(quote);
+   if(dataQuality.quality!=='continuous')throw Error('Instapvenster heeft onverklaarde ontbrekende candles.');
+   hit={...hit,entryPrice:execution.entry};
+   const plan={...originalPlan,riskPct:execution.riskPct,rewardPct:execution.rewardPct,plannedRiskReward:execution.netRR};
+@@ -645,7 +645,8 @@ async function openStrategyTrial(
+   return { ...trial, paperTradeId: paperTrade.id };
+ }
+ 
+-type PathProgress = { through:number; maxFavorablePct:number; maxAdversePct:number; barsObserved:number; lastCandleAt:number|null; unresolvedGaps?:boolean; };
++const isLongDirection=(trial:{direction:string})=>trial.direction==="long";
++type PathProgress = { through:number; maxFavorablePct:number; maxAdversePct:number; barsObserved:number; lastCandleAt:number|null; unresolvedGaps?:boolean; lastClose?:number; quietMinutes?:number; };
+ function pathProgress(trial:TrialRow): PathProgress | undefined {
+   const p=parseTrialEvidence(trial).pathProgress as PathProgress|undefined;
+   return p && Number.isFinite(p.through) ? p : undefined;
+@@ -682,7 +683,7 @@ export async function evaluateOpenStrategyTrials(limit = 80) {
+       const candles = candleRange.candles;
+       assertPriceContinuity(candles,trial.currentPrice||trial.entryPrice);
+       const epoch26=trial.strategyKey.startsWith(STRATEGY_EPOCH+":");
+-      const coverage=candleRange.coverage||candleCoverage(candles,candleRange.from,candleRange.to,60000);
++      const coverage=minuteRangeCoverage(candleRange);
+       const since = Math.floor(Date.parse(trial.openedAt)/60_000)*60_000;
+       const expiry = Date.parse(trial.expiresAt);
+       const relevant = candles.filter(
+@@ -690,16 +691,25 @@ export async function evaluateOpenStrategyTrials(limit = 80) {
+       );
+       const sample = relevant;
+       const latest = sample.at(-1);
+-      if (!latest) {
+-        const previous=pathProgress(trial);
++      const previous=pathProgress(trial);
++      const quietWindow=coverage.sourceConfirmed===true&&candleRange.to>candleRange.from;
++      // Last traded close before this window; recovered exactly from the stored fill when older progress lacks it.
++      const priorClose=previous?.lastClose ?? (previous?.lastCandleAt!=null&&trial.currentPrice
++        ? (epoch26 ? trial.currentPrice/(1-(isLongDirection(trial)?1:-1)*(EXECUTION_POLICY.slippageRate+EXECUTION_POLICY.assumedHalfSpreadRate)) : trial.currentPrice)
++        : Number((parseTrialEvidence(trial).execution as {referencePrice?:number}|undefined)?.referencePrice)||undefined);
++      if (!latest && !(quietWindow && candleRange.complete && Number.isFinite(priorClose))) {
+         if(candleRange.to>candleRange.from && !candleRange.complete) {
+           await db.update(strategyTrials).set({evidenceJson:JSON.stringify({...parseTrialEvidence(trial),pathProgress:{
+             through:candleRange.to,maxFavorablePct:previous?.maxFavorablePct||0,maxAdversePct:previous?.maxAdversePct||0,
+-            barsObserved:previous?.barsObserved||0,lastCandleAt:previous?.lastCandleAt||null,unresolvedGaps:previous?.unresolvedGaps===true || epoch26}}),pathQuality:"historical_backfill_pending"})
++            barsObserved:previous?.barsObserved||0,lastCandleAt:previous?.lastCandleAt||null,lastClose:previous?.lastClose,
++            quietMinutes:(previous?.quietMinutes||0)+(quietWindow?coverage.quietMinutes||0:0),
++            unresolvedGaps:previous?.unresolvedGaps===true || (epoch26&&!quietWindow)}}),pathQuality:"historical_backfill_pending"})
+             .where(and(eq(strategyTrials.id,trial.id),eq(strategyTrials.status,"open"),eq(strategyTrials.evidenceJson,trial.evidenceJson)));
+         }
+         throw new Error("Geen nieuwe gesloten candle; koers niet als vers aangemerkt. Historische lege blokken worden hervat.");
+       }
++      const lastClose = latest ? latest.close : Number(priorClose);
++      const lastCandleAt = latest ? latest.timestamp : previous?.lastCandleAt ?? null;
+ 
+       const isLong = trial.direction === "long";
+       let boundary = firstTradeBoundary({
+@@ -715,7 +725,8 @@ export async function evaluateOpenStrategyTrials(limit = 80) {
+         entryPrice:trial.entryPrice,stopPrice:trial.stopPrice,targetPrice:trial.targetPrice,candles:sample.filter(c=>c.timestamp>=Date.parse(trial.openedAt)),
+         prior});
+       const nextPath:PathProgress = {through:candleRange.to,maxFavorablePct:pathAnalysis.maxFavorablePct,
+-        maxAdversePct:pathAnalysis.maxAdversePct,barsObserved:pathAnalysis.barsObserved,lastCandleAt:latest.timestamp,
++        maxAdversePct:pathAnalysis.maxAdversePct,barsObserved:pathAnalysis.barsObserved,lastCandleAt,lastClose,
++        quietMinutes:(prior?.quietMinutes||0)+(coverage.quietMinutes||0),
+         unresolvedGaps:prior?.unresolvedGaps===true || (epoch26&&coverage.quality!=="continuous")};
+       const historicalBackfillPending = !candleRange.complete;
+       const expired = candleRange.complete && Date.now() >= expiry;
+@@ -736,7 +747,7 @@ export async function evaluateOpenStrategyTrials(limit = 80) {
+           ? trial.stopPrice
+           : status === "target"
+             ? trial.targetPrice
+-            : boundaryCandle?.close || latest.close;
++            : boundaryCandle?.close || lastClose;
+       const exitPrice=epoch26 ? exitFill(trial.direction as "long"|"short",referenceExitPrice,trial.stopPrice,boundaryCandle?.open||referenceExitPrice,status==="stopped") : referenceExitPrice;
+       const quantity = trial.amount / trial.entryPrice;
+       const calculatedOutcome = paperOutcome({
+diff --git a/lib/transition-engine.ts b/lib/transition-engine.ts
+index c6578bd..46f77ba 100644
+--- a/lib/transition-engine.ts
++++ b/lib/transition-engine.ts
+@@ -3,7 +3,7 @@ import {publicMarketJson} from './public-market-cache';
+ import {fetchBitvavoCandles,fetchBitvavoMinuteCandlesRange} from './chart-engine';
+ import {evaluateStrategySignals} from './strategy-signals';
+ import {focusedLegs,episodeKey} from './focused-engine';
+-import {FOCUSED_POLICY,EXECUTION_POLICY,candleCoverage,type CandleLike} from './research-policy';
++import {FOCUSED_POLICY,EXECUTION_POLICY,minuteRangeCoverage,type CandleLike} from './research-policy';
+ import {riskAdmission,bookRisk} from './portfolio-risk';
+ import {riskBook,position,riskClockState,saveRiskEquity} from './risk-engine';
+ import {assertPriceContinuity} from './candle-quality';
+@@ -95,7 +95,7 @@ export async function runTransitionCycle(){return withResearchLock('transition-s
+      if(Date.now()-(hit.candleTimestamp+HOUR)>EXECUTION_POLICY.maxSignalAgeMs)continue;
+      if(await raw.prepare('SELECT id FROM risk_candidates WHERE version=? AND episode=?').bind(P.version,episode).first())continue;
+      const end=Math.floor(Date.now()/60000)*60000,quotes=await fetchBitvavoMinuteCandlesRange(market,end-300000,end,5),quote=quotes.candles.at(-1);
+-     if(!quote||candleCoverage(quotes.candles,quotes.from,quotes.to,60000).quality!=='continuous')throw Error('Instapkoers onvolledig.');
++     if(!quote||minuteRangeCoverage(quotes).quality!=='continuous')throw Error('Instapkoers onvolledig.');
+      let built:ReturnType<typeof focusedLegs>;
+      try{built=focusedLegs(hit,quote.close,quote.timestamp+60000,Date.now(),'candidate');}
+      catch(error){await rejectTransitionPlan(episode,market,direction,o.id,error instanceof Error?error.message:'Ongeldig plan.');continue;}
+diff --git a/package.json b/package.json
+index e517e07..afd2e0b 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "crypto-forecast-lab",
+-  "version": "26.6.0",
++  "version": "26.6.1",
+   "private": true,
+   "engines": {
+     "node": ">=22.13.0"
+@@ -18,7 +18,7 @@
+     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
+     "preview": "npm run build && vite preview",
+     "deploy": "npm run build && wrangler deploy",
+-    "test:core": "node --experimental-strip-types --experimental-loader ./scripts/cloudflare-node-loader.mjs --test --test-concurrency=1 tests/domain.test.mjs tests/activity-notice.test.mjs tests/execution-consensus.test.mjs tests/monitor-schedule.test.mjs tests/navigation.test.mjs tests/telegram.test.mjs tests/exchange-accounts.test.mjs tests/chart-research.test.mjs tests/demo-network.test.mjs tests/lab-export.test.mjs tests/reliability.test.mjs tests/adaptive.test.mjs tests/paper-history.test.mjs tests/monthly-vwap.test.mjs tests/research-v26.test.mjs tests/research-validation.test.mjs tests/diagnostics.test.mjs tests/focused.test.mjs tests/post-trade.test.mjs tests/portfolio-risk.test.mjs tests/transitions.test.mjs",
++    "test:core": "node --experimental-strip-types --experimental-loader ./scripts/cloudflare-node-loader.mjs --test --test-concurrency=1 tests/domain.test.mjs tests/activity-notice.test.mjs tests/execution-consensus.test.mjs tests/monitor-schedule.test.mjs tests/navigation.test.mjs tests/telegram.test.mjs tests/exchange-accounts.test.mjs tests/chart-research.test.mjs tests/demo-network.test.mjs tests/lab-export.test.mjs tests/reliability.test.mjs tests/adaptive.test.mjs tests/paper-history.test.mjs tests/monthly-vwap.test.mjs tests/research-v26.test.mjs tests/research-validation.test.mjs tests/diagnostics.test.mjs tests/focused.test.mjs tests/post-trade.test.mjs tests/portfolio-risk.test.mjs tests/transitions.test.mjs tests/market-data.test.mjs",
+     "cf:whoami": "wrangler whoami",
+     "cf:db:create": "wrangler d1 create crypto-forecast-lab --location weur",
+     "cf:db:migrate": "wrangler d1 migrations apply crypto-forecast-lab --remote",
+diff --git a/scripts/build-release.mjs b/scripts/build-release.mjs
+index 058d147..2067447 100644
+--- a/scripts/build-release.mjs
++++ b/scripts/build-release.mjs
+@@ -1,6 +1,6 @@
+ import {readFile,writeFile} from 'node:fs/promises';
+ import {randomUUID} from 'node:crypto';
+ const pkg=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
+-const release={version:pkg.version.replace(/^0\./,''),packageVersion:pkg.version,buildId:randomUUID().slice(0,12),builtAt:new Date().toISOString(),title:'Marktovergangen en onzekerheid'};
++const release={version:pkg.version.replace(/^0\./,''),packageVersion:pkg.version,buildId:randomUUID().slice(0,12),builtAt:new Date().toISOString(),title:'Bronherstel Bitvavo en rustige markten'};
+ await writeFile(new URL('../lib/generated-release.json',import.meta.url),JSON.stringify(release,null,2)+'\n');
+ console.log(`Release v${release.version} · build ${release.buildId}`);
+diff --git a/scripts/export-source-files.json b/scripts/export-source-files.json
+index d5a4dd8..37174c4 100644
+--- a/scripts/export-source-files.json
++++ b/scripts/export-source-files.json
+@@ -3,6 +3,7 @@
+   ".env.example",
+   ".gitignore",
+   ".npmrc",
++  "ANALYSE-CLAUDE-2026-09-27.md",
+   "BITUNIX-HERSTEL.md",
+   "Beoordeling-Claude-v26.3.md",
+   "CHANGELOG.md",
+@@ -32,6 +33,7 @@
+   "QA-v26.4.0.md",
+   "QA-v26.5.0.md",
+   "QA-v26.6.0.md",
++  "QA-v26.6.1.md",
+   "README.md",
+   "ROADMAP.md",
+   "SECURITY.md",
+@@ -57,6 +59,7 @@
+   "UPDATE-v26.4.0.md",
+   "UPDATE-v26.5.0.md",
+   "UPDATE-v26.6.0.md",
++  "UPDATE-v26.6.1.md",
+   "WALLETS-INSTELLEN.md",
+   "app/activity-log.tsx",
+   "app/adaptive-lab.tsx",
+@@ -196,6 +199,7 @@
+   "lib/advanced-signals.ts",
+   "lib/alert-utils.ts",
+   "lib/automation.ts",
++  "lib/bitvavo-market-auth.ts",
+   "lib/bitvavo-traffic.ts",
+   "lib/bitvavo.ts",
+   "lib/bybit-demo.ts",
+@@ -345,6 +349,7 @@
+   "tests/execution-consensus.test.mjs",
+   "tests/focused.test.mjs",
+   "tests/lab-export.test.mjs",
++  "tests/market-data.test.mjs",
+   "tests/monitor-schedule.test.mjs",
+   "tests/monthly-vwap.test.mjs",
+   "tests/navigation.test.mjs",
+diff --git a/tests/market-data.test.mjs b/tests/market-data.test.mjs
+new file mode 100644
+index 0000000..1b5ea98
+--- /dev/null
++++ b/tests/market-data.test.mjs
+@@ -0,0 +1,155 @@
++import {test,after,beforeEach} from 'node:test';
++import assert from 'node:assert/strict';
++import {DatabaseSync} from 'node:sqlite';
++import {readFileSync,readdirSync} from 'node:fs';
++import {createHmac} from 'node:crypto';
++import {candleCoverage,sourceConfirmedCoverage,minuteRangeCoverage,learningEligible,COVERAGE_POLICY,EXECUTION_POLICY} from '../lib/research-policy.ts';
++import {initialExitState,advanceExit,priceConfirmedAt} from '../lib/adaptive-exits.ts';
++
++const sqlite=new DatabaseSync(':memory:');
++for(const n of readdirSync(new URL('../migrations/',import.meta.url)).filter(n=>n.endsWith('.sql')).sort())sqlite.exec(readFileSync(new URL('../migrations/'+n,import.meta.url),'utf8'));
++function prepare(query,args=[]){return {query,args,bind(...v){return prepare(query,v);},async first(){return sqlite.prepare(query).get(...args)||null;},async raw(){const s=sqlite.prepare(query);s.setReturnArrays(true);return s.all(...args);},async all(){return {results:sqlite.prepare(query).all(...args),success:true,meta:{}};},async run(){return {results:[],success:true,meta:sqlite.prepare(query).run(...args)};}};}
++globalThis.__CLOUDFLARE_ENV__={DB:{prepare,async batch(statements){sqlite.exec('BEGIN');try{const out=[];for(const s of statements)out.push(await s.run());sqlite.exec('COMMIT');return out;}catch(e){sqlite.exec('ROLLBACK');throw e;}}}};
++after(()=>sqlite.close());
++
++const {marketDataMode,marketDataRejection,resetMarketDataAuthForTests}=await import('../lib/bitvavo-market-auth.ts');
++const {publicSourceState,pausePublicSource,trafficSnapshot}=await import('../lib/bitvavo-traffic.ts');
++const {publicMarketJson}=await import('../lib/public-market-cache.ts');
++const {fetchBitvavoMinuteCandlesRange}=await import('../lib/chart-engine.ts');
++const {evaluateOpenStrategyTrials}=await import('../lib/strategy-engine.ts');
++const {evaluationBacklog}=await import('../lib/research-health.ts');
++const {getDb}=await import('../db/index.ts');
++const {strategyTrials}=await import('../db/schema.ts');
++
++const candle=(timestamp,open=100,high=101,low=99,close=100)=>({timestamp,open,high,low,close,volume:10});
++const row=c=>[c.timestamp,String(c.open),String(c.high),String(c.low),String(c.close),String(c.volume)];
++const KEY='fixture-read-only-key',SECRET='fixture-secret';
++function useKeys(on){if(on){process.env.BITVAVO_API_KEY=KEY;process.env.BITVAVO_API_SECRET=SECRET;}else{delete process.env.BITVAVO_API_KEY;delete process.env.BITVAVO_API_SECRET;}resetMarketDataAuthForTests();}
++beforeEach(()=>{useKeys(false);sqlite.prepare("DELETE FROM public_market_cache").run();});
++
++test('source-confirmed minute coverage counts quiet minutes without weakening invalid data checks',()=>{
++ const rows=[candle(0),candle(180000)];
++ assert.equal(candleCoverage(rows,0,240000,60000).quality,'gaps_unresolved');
++ const quiet=sourceConfirmedCoverage(rows,0,240000,60000);
++ assert.equal(quiet.quality,'continuous');assert.equal(quiet.quietMinutes,2);assert.equal(quiet.missing,0);assert.equal(quiet.sourceConfirmed,true);assert.equal(quiet.policy,COVERAGE_POLICY.version);
++ assert.equal(sourceConfirmedCoverage([candle(0,100,99,98,100)],0,60000,60000).quality,'invalid');
++ assert.equal(sourceConfirmedCoverage([candle(0),candle(0)],0,60000,60000).quality,'invalid');
++ assert.equal(minuteRangeCoverage({candles:rows,from:0,to:240000}).quality,'gaps_unresolved');
++ assert.equal(minuteRangeCoverage({candles:rows,from:0,to:240000,coverage:quiet}).quality,'continuous');
++});
++
++test('a fully received sparse Bitvavo window is continuous with its quiet minutes recorded',async()=>{
++ const original=globalThis.fetch,now=Math.floor(Date.now()/60000)*60000,from=now-10*60000;
++ globalThis.fetch=async()=>Response.json([candle(from),candle(from+4*60000),candle(from+9*60000)].map(row));
++ try{const range=await fetchBitvavoMinuteCandlesRange('QUIET-EUR',from,now,10);
++  assert.equal(range.candles.length,3);assert.equal(range.coverage.quality,'continuous');assert.equal(range.coverage.quietMinutes,7);assert.equal(range.complete,true);
++ }finally{globalThis.fetch=original;}
++});
++
++test('an open position in a quiet market expires at its last traded price once the window is confirmed',()=>{
++ const s=initialExitState({variant:'fixed',direction:'long',price:100,stop:90,target:130,atr:2,notional:500,openedAt:0,maximumHours:1});
++ const traded=advanceExit(s,[candle(0),candle(20*60000,100,103,99,102)],25*60000);
++ assert.equal(traded.lastPriceAt,21*60000);assert.equal(traded.lastPrice,102);
++ const unconfirmed=advanceExit({...traded,through:3600000},[],3600000+120000);
++ assert.equal(unconfirmed.status,'open','without source confirmation a long silence is still not a valid expiry');
++ const confirmed=advanceExit(traded,[],3600000+120000,3600000);
++ assert.equal(confirmed.status,'expired');assert.equal(confirmed.quietThrough,3600000);
++ const exit=confirmed.events.at(-1);assert.equal(exit.kind,'expired');assert.equal(exit.at,3600000);assert.ok(Math.abs(exit.price-102*(1-s.slippageRate))<1e-9);
++ assert.match(exit.reason,/geen handel/);
++ const quietOpen=advanceExit(traded,[],40*60000,40*60000);
++ assert.equal(quietOpen.status,'open');assert.equal(priceConfirmedAt(quietOpen),40*60000);assert.equal(priceConfirmedAt(traded),21*60000);
++});
++
++test('market candles are signed with the owner key and pause separately from the shared anonymous IP limit',async()=>{
++ useKeys(true);
++ const original=globalThis.fetch,seen=[];
++ globalThis.fetch=async(url,init)=>{seen.push({url:String(url),headers:new Headers(init.headers)});return Response.json([]);};
++ try{
++  assert.equal(await marketDataMode(),'account');
++  await publicMarketJson('https://api.bitvavo.com/v2/SIGN-EUR/candles?limit=10&interval=1h');
++  const h=seen[0].headers,ts=h.get('bitvavo-access-timestamp');
++  assert.equal(h.get('bitvavo-access-key'),KEY);assert.equal(h.get('bitvavo-access-window'),'10000');
++  const expected=createHmac('sha256',SECRET).update(ts+'GET'+'/v2/SIGN-EUR/candles?interval=1h&limit=10').digest('hex');
++  assert.equal(h.get('bitvavo-access-signature'),expected);
++  assert.ok(!JSON.stringify(sqlite.prepare('SELECT * FROM public_market_cache').all()).includes(SECRET));
++  const now=Date.now();
++  sqlite.prepare("INSERT INTO public_market_cache(id,payload_json,expires_at) VALUES('bitvavo:cooldown',?,?)").run(JSON.stringify({reason:'shared IP'}),now+3600000);
++  assert.equal(await publicSourceState(),null,'an anonymous IP pause does not stop signed requests');
++  await publicMarketJson('https://api.bitvavo.com/v2/SIGN2-EUR/candles?limit=10&interval=1h');assert.equal(seen.length,2);
++  await pausePublicSource(now+60000,'account unit');
++  assert.equal(sqlite.prepare("SELECT count(*) n FROM public_market_cache WHERE id='bitvavo:cooldown:account'").get().n,1);
++  assert.equal((await publicSourceState()).reason,'account unit');
++  assert.equal((await trafficSnapshot()).marketData.mode,'account');
++ }finally{globalThis.fetch=original;}
++});
++
++test('a rejected market-data key falls back to anonymous requests instead of blocking candles',async()=>{
++ useKeys(true);
++ const original=globalThis.fetch;let calls=0;
++ globalThis.fetch=async(_,init)=>{calls++;return new Headers(init.headers).has('bitvavo-access-key')?Response.json({errorCode:305},{status:403}):Response.json([[0,'1','1','1','1','1']]);};
++ try{
++  const data=await publicMarketJson('https://api.bitvavo.com/v2/REJECT-EUR/candles?interval=1h&limit=10');
++  assert.equal(calls,2);assert.equal(data.length,1);
++  assert.equal(await marketDataMode(),'anonymous');assert.match(marketDataRejection().reason,/HTTP 403 · errorCode 305/);
++  assert.equal((await trafficSnapshot()).marketData.mode,'anonymous');
++ }finally{globalThis.fetch=original;}
++});
++
++test('an HTML block page is a source failure, not a rejected key',async()=>{
++ useKeys(true);
++ const original=globalThis.fetch;let calls=0;
++ globalThis.fetch=async()=>{calls++;return new Response('<html>blocked</html>',{status:403,headers:{'content-type':'text/html'}});};
++ try{
++  await assert.rejects(publicMarketJson('https://api.bitvavo.com/v2/WAF-EUR/candles?interval=1h&limit=10'),/HTTP 403/);
++  assert.equal(calls,1);assert.equal(await marketDataMode(),'account');assert.equal(marketDataRejection(),null);
++ }finally{globalThis.fetch=original;}
++});
++
++test('without keys requests stay unsigned and use the original shared pause',async()=>{
++ const original=globalThis.fetch;let headers;
++ globalThis.fetch=async(_,init)=>{headers=new Headers(init.headers);return Response.json([]);};
++ try{
++  await publicMarketJson('https://api.bitvavo.com/v2/ANON-EUR/candles?interval=1h&limit=10');
++  assert.equal(headers.has('bitvavo-access-key'),false);assert.equal(await marketDataMode(),'anonymous');
++  await pausePublicSource(Date.now()+60000,'anon unit');
++  assert.equal(sqlite.prepare("SELECT count(*) n FROM public_market_cache WHERE id='bitvavo:cooldown'").get().n,1);
++ }finally{globalThis.fetch=original;}
++});
++
++async function trial(overrides={}){
++ const evidence={execution:{version:EXECUTION_POLICY.version,referencePrice:100},dataQuality:{quality:'continuous'},...overrides.evidence};
++ delete overrides.evidence;
++ return (await getDb().insert(strategyTrials).values({triggerKey:crypto.randomUUID(),strategyKey:'v26_0:fixture:1h:long',strategyId:'fixture',strategyName:'Fixture',asset:'QUIET',market:'QUIET-EUR',interval:'1h',direction:'long',status:'open',candleTimestamp:1,entryPrice:100,currentPrice:100,stopPrice:95,targetPrice:120,riskPct:5,rewardPct:20,plannedRiskReward:4,amount:100,feePct:0.25,returnPct:0,pnl:0,reasoning:'fixture',evidenceJson:JSON.stringify(evidence),...overrides}).returning())[0];
++}
++
++test('a quiet final stretch closes an expired trial as learnable evidence and clears the backlog',async()=>{
++ const now=Math.floor(Date.now()/60000)*60000,expiry=now-30*60000,through=expiry-40*60000;
++ const t=await trial({openedAt:new Date(expiry-3*3600000).toISOString(),updatedAt:new Date(through).toISOString(),expiresAt:new Date(expiry).toISOString(),
++  evidence:{pathProgress:{through,maxFavorablePct:1,maxAdversePct:1,barsObserved:120,lastCandleAt:through-60000,lastClose:101,unresolvedGaps:false}}});
++ const open=await trial({asset:'QUIET2',market:'QUIET2-EUR',openedAt:new Date(now-3600000).toISOString(),updatedAt:new Date(now-45*60000).toISOString(),expiresAt:new Date(now+3600000).toISOString(),
++  currentPrice:99.85,evidence:{pathProgress:{through:now-45*60000,maxFavorablePct:0,maxAdversePct:0,barsObserved:15,lastCandleAt:now-46*60000,unresolvedGaps:false}}});
++ assert.equal((await evaluationBacklog()).trials,2);
++ const original=globalThis.fetch;globalThis.fetch=async()=>Response.json([]);
++ try{
++  const result=await evaluateOpenStrategyTrials();assert.equal(result.checked,2,JSON.stringify(result));assert.equal(result.closed,1);
++  const closed=sqlite.prepare('SELECT * FROM strategy_trials WHERE id=?').get(t.id);
++  assert.equal(closed.status,'expired');assert.equal(closed.path_quality,'chronological_v3');
++  assert.ok(Math.abs(closed.current_price-101*(1-EXECUTION_POLICY.slippageRate-EXECUTION_POLICY.assumedHalfSpreadRate))<1e-9);
++  const ev=JSON.parse(closed.evidence_json);assert.equal(ev.pathProgress.quietMinutes,40);assert.equal(ev.coverageAtLastCheck.policy,COVERAGE_POLICY.version);
++  assert.equal(learningEligible({strategyKey:closed.strategy_key,status:closed.status,pathQuality:closed.path_quality,evidenceJson:closed.evidence_json}),true);
++  const still=sqlite.prepare('SELECT * FROM strategy_trials WHERE id=?').get(open.id);
++  assert.equal(still.status,'open');assert.equal(JSON.parse(still.evidence_json).pathProgress.through,now);
++  assert.ok(Math.abs(JSON.parse(still.evidence_json).pathProgress.lastClose-100)<1e-9,'older progress recovers the traded close from the stored fill');
++  assert.equal((await evaluationBacklog()).trials,0);
++ }finally{globalThis.fetch=original;}
++});
++
++test('a position already processed up to its end expires on the next empty confirmed window',async()=>{
++ const s=initialExitState({variant:'fixed',direction:'short',price:100,stop:110,target:80,atr:2,notional:500,openedAt:0,maximumHours:1});
++ const stuck={...advanceExit(s,[candle(40*60000,100,101,99,99)],41*60000),through:3600000};
++ assert.equal(advanceExit(stuck,[],3600000+60000).status,'open','legacy rule alone keeps it open');
++ const range=await fetchBitvavoMinuteCandlesRange('DONE-EUR',3600000,3600000,720);
++ assert.equal(range.coverage.sourceConfirmed,true);assert.equal(range.coverage.quality,'continuous');
++ const closed=advanceExit(stuck,range.candles,3600000+60000,range.to);
++ assert.equal(closed.status,'expired');assert.ok(Math.abs(closed.events.at(-1).price-99*(1+s.slippageRate))<1e-9);
++});
+diff --git a/tests/research-v26.test.mjs b/tests/research-v26.test.mjs
+index 4d69d5b..97add2c 100644
+--- a/tests/research-v26.test.mjs
++++ b/tests/research-v26.test.mjs
+@@ -72,10 +72,16 @@ test('exit rules are frozen in state; partial and trailing cannot rewrite earlie
+  assert.equal(updated.partialDone,true);assert.equal(updated.remaining,.5);assert.equal(s.remaining,1);
+  const amb=advanceExit(s,[candle(0,100,120,90,100)],60000);assert.equal(amb.status,'ambiguous');
+ });
+-test('a gap is retained as unresolved and excluded from all paired rankings',async()=>{
++test('a quiet minute in a received Bitvavo window is no gap; an earlier gap label is retained and excluded',async()=>{
+  const original=globalThis.fetch;
++ // v26.6.1: Bitvavo omits candles for minutes without trades. Labels stored before this release are never rewritten.
++ db.prepare("UPDATE pilot_positions SET quality='gaps_unresolved' WHERE variant='trailing'").run();
+  globalThis.fetch=async()=>{const start=JSON.parse(db.prepare('SELECT payload_json FROM pilot_positions ORDER BY id LIMIT 1').get().payload_json).through;return Response.json([candle(start),candle(start+120000,100,107,98,106)].map(c=>[c.timestamp,c.open,c.high,c.low,c.close,c.volume]));};
+- try{const result=await monitorPilotPositions();assert.equal(result.checked,3);const report=await researchReport();assert.equal(report.pilot.pairedIdeas,0);assert.equal(report.accounts.every(a=>a.excluded===1),true);assert.equal(report.accounts.every(a=>a.equity<10000),true);}finally{globalThis.fetch=original;}
++ try{const result=await monitorPilotPositions();assert.equal(result.checked,3);assert.equal(result.unresolvedGaps,1);
++  const rows=db.prepare('SELECT variant,quality,status FROM pilot_positions').all();
++  assert.ok(rows.every(r=>r.status==='stopped'));assert.deepEqual(rows.map(r=>[r.variant,r.quality]).sort(),[['fixed','continuous'],['hybrid','continuous'],['trailing','gaps_unresolved']]);
++  const report=await researchReport();assert.equal(report.pilot.pairedIdeas,0);
++  assert.deepEqual(report.accounts.map(a=>[a.variant,a.excluded]).sort(),[['fixed',0],['hybrid',0],['trailing',1]]);assert.equal(report.accounts.every(a=>a.equity<10000),true);}finally{globalThis.fetch=original;}
+ });
+ test('paired comparison excludes unfinished or manually changed variants, not just losing legs',()=>{
+  const rows=states(0).map((s,i)=>({id:i,idea_id:1,variant:s.variant,status:'stopped',quality:'continuous',state:{...s,status:'stopped'}}));
