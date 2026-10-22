@@ -164,6 +164,56 @@ test('Password recovery with the one-time code, password change and invite-only 
  assert.equal((await browser(closed).post('/api/signup',signupBody('x@x.nl',{invite:'PROEF2026'}))).status,200);
 });
 
+test('Beheer: personal invitations, pausing, a new recovery code and removing a family; only for the administrator',async()=>{
+ const env=localEnv({INVITE_ONLY:'true',INVITE_CODE:'ALGEMEEN',ADMIN_EMAILS:' Beheer@X.nl , ander@x.nl'});
+ const admin=browser(env);assert.equal((await admin.post('/api/signup',signupBody('beheer@x.nl',{invite:'ALGEMEEN'}))).status,200);
+ assert.equal((await admin.get('/api/state')).body.me.admin,true);
+ assert.equal((await browser(env).post('/api/signup',signupBody('zonder@x.nl'))).status,403,'invite only');
+ const inv=(await admin.post('/api/admin/invites',{note:'Familie Jansen'})).body.invite;assert.match(inv.code,/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);assert.equal(inv.note,'Familie Jansen');
+ const spare=(await admin.post('/api/admin/invites',{})).body.invite;
+ // The invited parent signs up with the code (case does not matter); the code then stops working.
+ const jansen=browser(env);assert.equal((await jansen.post('/api/signup',signupBody('jansen@x.nl',{invite:inv.code.toLowerCase()}))).status,200);
+ assert.equal((await browser(env).post('/api/signup',signupBody('tweede@x.nl',{invite:inv.code}))).status,403,'single use');
+ const jState=(await jansen.get('/api/state')).body;assert.equal(jState.me.admin,false);
+ assert.equal((await jansen.get('/api/admin')).status,403,'parents are not administrators');
+ assert.equal((await jansen.post('/api/admin/invites',{note:'x'})).status,403);
+ const kid=jState.profiles[0].id;await jansen.post(`/api/profiles/${kid}/login`,{login:'jansen.kind',password:'kind-wachtwoord'});
+ const child=browser(env);await child.post('/api/login',{login:'jansen.kind',password:'kind-wachtwoord'});assert.equal((await child.get('/api/admin')).status,403);
+ let o=(await admin.get('/api/admin')).body;
+ const fam=o.families.find(f=>f.email==='jansen@x.nl');assert.equal(fam.invite,inv.code);assert.equal(fam.children,1);assert.ok(fam.lastSeen);
+ assert.equal(o.invites.find(i=>i.code===inv.code).email,'jansen@x.nl');assert.equal(o.invites.find(i=>i.code===spare.code).usedAt,null);
+ assert.equal(JSON.stringify(o).includes('Sam'),false,'no child names or content in the overview');
+ assert.equal(o.inviteRequired,true);assert.equal(o.sharedCode,true);
+ // Revoking: an unused code disappears, a used one stays as a record.
+ assert.equal((await admin.del('/api/admin/invites/'+spare.code)).status,200);
+ assert.equal((await browser(env).post('/api/signup',signupBody('derde@x.nl',{invite:spare.code}))).status,403);
+ assert.equal((await admin.del('/api/admin/invites/'+inv.code)).status,409);
+ // Pausing signs the family out everywhere and blocks login and recovery; resuming restores access with the data intact.
+ const own=(await admin.get('/api/admin')).body.families.find(f=>f.email==='beheer@x.nl').id;
+ assert.equal((await admin.post(`/api/admin/families/${own}/pause`,{paused:true})).status,400,'not your own family');
+ assert.equal((await admin.post(`/api/admin/families/${fam.id}/pause`,{paused:true})).status,200);
+ assert.equal((await jansen.get('/api/state')).status,401);assert.equal((await child.get('/api/state')).status,401);
+ const paused=await browser(env).post('/api/login',{login:'jansen@x.nl',password:'een-sterk-wachtwoord'});assert.equal(paused.status,403);assert.match(paused.body.error,/gepauzeerd/);
+ assert.equal((await browser(env).post('/api/login',{login:'jansen@x.nl',password:'fout-wachtwoord'})).status,401,'a wrong password does not reveal the pause');
+ assert.equal((await admin.post(`/api/admin/families/${fam.id}/pause`,{paused:false})).status,200);
+ assert.equal((await jansen.post('/api/login',{login:'jansen@x.nl',password:'een-sterk-wachtwoord'})).status,200);assert.equal((await jansen.get('/api/state')).body.profiles.length,1);
+ // A lost recovery code: the administrator makes a new one, which the parent uses to choose a new password.
+ const code=(await admin.post(`/api/admin/families/${fam.id}/recovery`,{})).body.recoveryCode;assert.match(code,/^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);
+ assert.equal((await browser(env).post('/api/recover',{email:'jansen@x.nl',code,password:'nieuw-wachtwoord-2'})).status,200);
+ // Removing needs the administrator's password and takes everything of that family, files included.
+ await jansen.post('/api/login',{login:'jansen@x.nl',password:'nieuw-wachtwoord-2'});assert.equal((await jansen.post('/api/documents',textDoc('Bron van gezin Jansen.'))).status,200);
+ assert.ok((await env.FILES.list({prefix:fam.id+'/'})).objects.length>0);
+ assert.equal((await admin.post(`/api/admin/families/${fam.id}/delete`,{password:'fout'})).status,401);
+ assert.equal((await admin.post(`/api/admin/families/${fam.id}/delete`,{password:'een-sterk-wachtwoord'})).status,200);
+ assert.equal((await env.FILES.list({prefix:fam.id+'/'})).objects.length,0);
+ assert.equal((await env.DB.prepare('SELECT count(*) AS n FROM users WHERE family_id=?').bind(fam.id).first()).n,0);
+ assert.equal((await jansen.get('/api/state')).status,401);
+ o=(await admin.get('/api/admin')).body;assert.equal(o.families.length,1);assert.equal(o.invites.find(i=>i.code===inv.code).email,null,'the used invitation remains, without the deleted family');
+ assert.equal((await admin.post('/api/admin/families/onbekend/pause',{paused:true})).status,404);
+ // Without INVITE_ONLY or INVITE_CODE anyone may sign up, and an unknown code is ignored.
+ assert.equal((await browser(localEnv()).post('/api/signup',signupBody('open@x.nl',{invite:'XXXX-XXXX'}))).status,200);
+});
+
 test('Export, import of an old device backup, and deleting the whole family',async()=>{
  const env=localEnv();const {b,state}=await family(env,'p@x.nl');
  const id=(await b.post('/api/documents',textDoc('Bron voor de export.'))).body.document.id;

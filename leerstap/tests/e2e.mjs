@@ -21,7 +21,7 @@ const ai=http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req
  res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'completed',usage:{input_tokens:900,output_tokens:700},output:[{content:[{type:'output_text',text:JSON.stringify(module)}]}]}));});});
 await new Promise(r=>ai.listen(0,'127.0.0.1',r));
 const port=4300+Math.floor(Math.random()*500),base=`http://127.0.0.1:${port}`;
-const server=spawn(process.execPath,['--disable-warning=ExperimentalWarning','scripts/serve.mjs'],{env:{...process.env,PORT:String(port),LEERSTAP_DATA:data,OPENAI_API_KEY:'test-only',OPENAI_BASE_URL:`http://127.0.0.1:${ai.address().port}`},stdio:['ignore','pipe','inherit']});
+const server=spawn(process.execPath,['--disable-warning=ExperimentalWarning','scripts/serve.mjs'],{env:{...process.env,PORT:String(port),LEERSTAP_DATA:data,OPENAI_API_KEY:'test-only',INVITE_ONLY:'true',INVITE_CODE:'E2E-ALGEMEEN',ADMIN_EMAILS:'ouder@voorbeeld.nl',OPENAI_BASE_URL:`http://127.0.0.1:${ai.address().port}`},stdio:['ignore','pipe','inherit']});
 await new Promise((resolve,reject)=>{server.stdout.on('data',d=>String(d).includes('draait')&&resolve());server.on('exit',reject);});
 
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/opt/pw-browsers/chromium'});
@@ -38,7 +38,7 @@ try{
   await parent.goto(base);await shot(parent,'01-inlogscherm');
   await parent.click('[data-action="auth-view"][data-view="signup"]');
   await parent.fill('#email','ouder@voorbeeld.nl');await parent.fill('#new-password','een-sterk-wachtwoord');await parent.fill('#confirm','een-sterk-wachtwoord');
-  await parent.fill('#child-name','Sam');await parent.selectOption('#signup-year','2');await parent.check('#accept');
+  await parent.fill('#child-name','Sam');await parent.selectOption('#signup-year','2');await parent.fill('#invite','E2E-ALGEMEEN');await parent.check('#accept');
   await shot(parent,'02-account-maken');await parent.click('#signup-form button:not(.link)');
   await parent.waitForSelector('#recovery-code');assert.match(await parent.textContent('#recovery-code'),/^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);await shot(parent,'03-herstelcode');
   await click(parent,'recovery-done');await parent.waitForSelector('#toast:has-text("Bevestig")');
@@ -93,6 +93,27 @@ try{
   await parent.fill('#login','ouder@voorbeeld.nl');await parent.fill('#password','een-sterk-wachtwoord');await parent.click('#login-form button:not(.link)');
   await parent.waitForSelector('.hero');await parent.click('[data-action="nav"][data-route="progress"]');
   await parent.waitForSelector('.card:has-text("Wortels uit mijn boek")');await shot(parent,'10-voortgang-ouder');
+ });
+ await step('Beheer: persoonlijke uitnodiging via een link, gezin zien en pauzeren',async()=>{
+  await parent.context().grantPermissions(['clipboard-read','clipboard-write'],{origin:base});
+  await parent.click('[data-action="nav"][data-route="admin"]');await parent.waitForSelector('h1:has-text("Beheer")');
+  await parent.fill('#invite-note','Familie Jansen');await click(parent,'admin-invite');await parent.waitForSelector('.notice .recovery-code');
+  const code=(await parent.textContent('.notice .recovery-code')).trim();assert.match(code,/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+  await parent.click('.notice [data-action="copy-text"]');const link=await parent.evaluate(()=>navigator.clipboard.readText());assert.equal(link,`${base}/?uitnodiging=${code}`);
+  await shot(parent,'11-beheer');
+  const invited=await device({width:390,height:844});await invited.goto(link);await invited.waitForSelector('#signup-form');
+  assert.equal(await invited.inputValue('#invite'),code);assert.equal(new URL(invited.url()).search,'','the code leaves the address bar');
+  await invited.fill('#email','jansen@voorbeeld.nl');await invited.fill('#new-password','nog-een-sterk-wachtwoord');await invited.fill('#confirm','nog-een-sterk-wachtwoord');
+  await invited.fill('#child-name','Noor');await invited.check('#accept');await invited.click('#signup-form button:not(.link)');
+  await invited.waitForSelector('#recovery-code');await invited.check('#recovery-saved');await click(invited,'recovery-done');await invited.waitForSelector('.hero:has-text("Noor")');
+  assert.equal(await invited.$('[data-route="admin"]'),null,'only the administrator sees Beheer');
+  await click(parent,'admin-refresh');await parent.waitForSelector('.list-item:has-text("jansen@voorbeeld.nl")');
+  await parent.waitForSelector('td:has-text("jansen@voorbeeld.nl")');
+  parent.once('dialog',d=>d.accept());await parent.click('.list-item:has-text("jansen@voorbeeld.nl") [data-action="admin-pause"]');
+  await parent.waitForSelector('.list-item:has-text("jansen@voorbeeld.nl") .pill:has-text("Gepauzeerd")');
+  await parent.setViewportSize({width:390,height:844});const overflow=await parent.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);assert.ok(overflow<=0,'Beheer has no horizontal scroll on a phone');
+  await shot(parent,'12-beheer-telefoon');await parent.setViewportSize({width:1280,height:900});
+  await invited.reload();await invited.waitForSelector('#login-form');
  });
  await step('App is installeerbaar (manifest en service worker)',async()=>{
   const r=await parent.evaluate(async()=>({manifest:(await (await fetch('/manifest.webmanifest')).json()).display,sw:!!(await navigator.serviceWorker.getRegistration())}));

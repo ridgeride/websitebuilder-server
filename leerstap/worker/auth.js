@@ -14,16 +14,20 @@ export const sha256=async s=>hex(await crypto.subtle.digest('SHA-256',enc.encode
 export function randomToken(bytes=32){return b64(crypto.getRandomValues(new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 // Recovery codes avoid ambiguous characters so parents can copy them from paper.
 export function recoveryCode(){const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',r=crypto.getRandomValues(new Uint8Array(20));return [...r].map(x=>alphabet[x%alphabet.length]).join('').match(/.{5}/g).join('-');}
+// Invite codes: short enough to type from a message, too many combinations to guess with signup throttling.
+export function inviteCode(){const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',r=crypto.getRandomValues(new Uint8Array(8));return [...r].map(x=>alphabet[x%alphabet.length]).join('').match(/.{4}/g).join('-');}
 export const COOKIE='ls_session';
 export function sessionCookie(token,url,maxAge=SESSION_DAYS*86400){return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${new URL(url).protocol==='https:'?'; Secure':''}`;}
 export function readCookie(request){const m=(request.headers.get('Cookie')||'').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]{20,100})`));return m?.[1]||null;}
 export async function createSession(env,userId){const token=randomToken(),now=Date.now();await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,expires,created) VALUES(?,?,?,?)').bind(await sha256(token),userId,now+SESSION_DAYS*86400000,now).run();return token;}
 export async function readSession(env,request){
  const token=readCookie(request);if(!token)return null;const hash=await sha256(token);
- const row=await env.DB.prepare('SELECT s.expires,u.id,u.family_id,u.role,u.login,u.name,f.name AS family_name,f.ai_consent_at FROM sessions s JOIN users u ON u.id=s.user_id JOIN families f ON f.id=u.family_id WHERE s.token_hash=?').bind(hash).first();
+ const row=await env.DB.prepare('SELECT s.expires,u.id,u.family_id,u.role,u.login,u.name,f.name AS family_name,f.ai_consent_at,f.blocked_at FROM sessions s JOIN users u ON u.id=s.user_id JOIN families f ON f.id=u.family_id WHERE s.token_hash=?').bind(hash).first();
  if(!row||row.expires<Date.now()){if(row)await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(hash).run();return null;}
+ // A paused family keeps its data but cannot use the app until the administrator resumes it.
+ if(row.blocked_at)return null;
  // Sliding expiry: active users stay signed in, a forgotten device expires after 30 days.
- let renewed=null;if(row.expires-Date.now()<(SESSION_DAYS-1)*86400000){await env.DB.prepare('UPDATE sessions SET expires=? WHERE token_hash=?').bind(Date.now()+SESSION_DAYS*86400000,hash).run();renewed=token;}
+ let renewed=null;if(row.expires-Date.now()<(SESSION_DAYS-1)*86400000){await env.DB.batch([env.DB.prepare('UPDATE sessions SET expires=? WHERE token_hash=?').bind(Date.now()+SESSION_DAYS*86400000,hash),env.DB.prepare('UPDATE families SET last_seen=? WHERE id=?').bind(Date.now(),row.family_id)]);renewed=token;}
  return {user:{id:row.id,family:row.family_id,role:row.role,login:row.login,name:row.name,familyName:row.family_name,aiConsent:!!row.ai_consent_at},token,hash,renewed};
 }
 // Returns false once `limit` failures happened within the window; success callers reset with clearThrottle.

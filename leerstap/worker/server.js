@@ -1,8 +1,9 @@
 import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSession,validPages,validProfile} from '../src/core.js';
 import {analysePages,HttpError} from './analyse.js';
-import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,throttled,countFailure,clearThrottle} from './auth.js';
+import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.3.0';
+export const APP_VERSION='0.4.0';
+const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
 const MODULE_META=['title','subject','schoolYear','period','chapter','method','deletedAt'];
@@ -18,6 +19,10 @@ const normEmail=v=>String(v||'').trim().toLowerCase();
 const validEmail=v=>v.length<=200&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
 const validChildLogin=v=>/^[a-z0-9][a-z0-9._-]{2,29}$/.test(v);
 const limit=(env,name,fallback)=>Number(env[name])>0?Number(env[name]):fallback;
+// Signup needs an invitation while INVITE_ONLY is on or a shared INVITE_CODE is set.
+const inviteRequired=env=>env.INVITE_ONLY==='true'||!!env.INVITE_CODE;
+// The administrator is a parent account whose e-mail address is listed in ADMIN_EMAILS (comma-separated).
+const isAdmin=(env,user)=>user.role==='parent'&&String(env.ADMIN_EMAILS||'').split(',').map(normEmail).filter(Boolean).includes(user.login);
 
 async function body(request,max=MAX_ITEM){
  const length=Number(request.headers.get('content-length')||0);if(length>max)fail(413,'Te veel gegevens in één keer. Verdeel het materiaal.');
@@ -50,7 +55,7 @@ async function state(env,user){
  for(const r of rows){const data=JSON.parse(r.data);out.revs[r.kind+':'+r.id]=r.rev;if(r.kind==='draft')out.drafts[r.id]=data;else out[r.kind+'s'].push(data);}
  out.attempts.sort((a,b)=>a.created-b.created);out.modules.sort((a,b)=>(a.created||0)-(b.created||0));
  const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first();
- return {...out,me:{id:user.id,role:user.role,name:user.name,login:user.login,familyName:user.familyName,aiConsent:user.aiConsent},usage:{analyses:used?.analyses||0,limit:limit(env,'AI_MONTHLY_LIMIT',30)}};
+ return {...out,me:{id:user.id,role:user.role,name:user.name,login:user.login,familyName:user.familyName,aiConsent:user.aiConsent,admin:isAdmin(env,user)},usage:{analyses:used?.analyses||0,limit:limit(env,'AI_MONTHLY_LIMIT',30)}};
 }
 
 async function putItem(env,user,kind,id,input){
@@ -116,7 +121,8 @@ async function analyse(env,user,input){
 
 async function signup(env,request,input){
  const ip=clientIp(request);if(await throttled(env,'signup:'+ip,10,3600000))fail(429,'Te veel nieuwe accounts vanaf dit netwerk. Probeer het over een uur opnieuw.');
- if(env.INVITE_CODE&&String(input.invite||'').trim()!==env.INVITE_CODE)fail(403,'De uitnodigingscode klopt niet. Leerstap is nog in een besloten proef.');
+ const invite=String(input.invite||'').trim(),personal=invite?await q(env,'SELECT code FROM invites WHERE code=? AND used_at IS NULL',invite.toUpperCase()).first():null;
+ if(inviteRequired(env)&&!personal&&!(env.INVITE_CODE&&invite===env.INVITE_CODE)){await countFailure(env,'signup:'+ip,3600000);fail(403,'De uitnodigingscode klopt niet of is al gebruikt. Leerstap is nog in een besloten proef.');}
  if(input.accept!==true)fail(400,'Ga akkoord met de voorwaarden en het privacybeleid.');
  const email=normEmail(input.email);if(!validEmail(email))fail(400,'Vul een geldig e-mailadres in.');
  if(typeof input.password!=='string'||input.password.length<10||input.password.length>200)fail(400,'Kies een wachtwoord van minimaal 10 tekens.');
@@ -125,25 +131,29 @@ async function signup(env,request,input){
  await countFailure(env,'signup:'+ip,3600000);
  const family=uid(),parent=uid(),childId=uid(),code=recoveryCode(),now=Date.now(),demo=demoModule();demo.created=now;
  await env.DB.batch([
-  q(env,'INSERT INTO families(id,name,created) VALUES(?,?,?)',family,String(input.familyName||'Ons gezin').trim().slice(0,60)||'Ons gezin',now),
+  q(env,'INSERT INTO families(id,name,created,last_seen) VALUES(?,?,?,?)',family,String(input.familyName||'Ons gezin').trim().slice(0,60)||'Ons gezin',now,now),
   q(env,"INSERT INTO users(id,family_id,role,login,name,pw_hash,recovery_hash,profile,created) VALUES(?,?,'parent',?,?,?,?,'{}',?)",parent,family,email,String(input.parentName||'Ouder').trim().slice(0,40)||'Ouder',await hashSecret(input.password),await hashSecret(code),now),
   q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",childId,family,child.name,JSON.stringify(child.profile),now+1),
-  q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'module','demo',?,1,?)",family,JSON.stringify(demo),now)]);
- await audit(env,{family,id:parent},'signup');
+  q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'module','demo',?,1,?)",family,JSON.stringify(demo),now),
+  ...personal?[q(env,'UPDATE invites SET used_at=?,family_id=? WHERE code=? AND used_at IS NULL',now,family,personal.code)]:[]]);
+ await audit(env,{family,id:parent},'signup',personal?'uitnodiging '+personal.code:'');
  return json({recoveryCode:code},200,{'Set-Cookie':sessionCookie(await createSession(env,parent),request.url)});
 }
 async function login(env,request,input){
  const name=normEmail(input.login),ip=clientIp(request);
  if(await throttled(env,'login:'+name,10,15*MINUTE)||await throttled(env,'ip:'+ip,50,15*MINUTE))fail(429,'Te veel pogingen. Wacht een kwartier en probeer het opnieuw.');
- const user=await q(env,'SELECT id,pw_hash FROM users WHERE login=?',name).first();
+ const user=await q(env,'SELECT u.id,u.family_id,u.pw_hash,f.blocked_at FROM users u JOIN families f ON f.id=u.family_id WHERE u.login=?',name).first();
  if(!(await verifySecret(String(input.password||''),user?.pw_hash))){await countFailure(env,'login:'+name,15*MINUTE);await countFailure(env,'ip:'+ip,15*MINUTE);fail(401,'Gebruikersnaam of wachtwoord klopt niet.');}
  await clearThrottle(env,'login:'+name);
+ if(user.blocked_at)fail(403,PAUSED);
+ await q(env,'UPDATE families SET last_seen=? WHERE id=?',Date.now(),user.family_id).run();
  return json({ok:true},200,{'Set-Cookie':sessionCookie(await createSession(env,user.id),request.url)});
 }
 async function recover(env,request,input){
  const email=normEmail(input.email);if(await throttled(env,'recover:'+email,5,3600000))fail(429,'Te veel pogingen. Probeer het over een uur opnieuw.');
- const user=await q(env,"SELECT id,family_id,recovery_hash FROM users WHERE login=? AND role='parent'",email).first();
+ const user=await q(env,"SELECT u.id,u.family_id,u.recovery_hash,f.blocked_at FROM users u JOIN families f ON f.id=u.family_id WHERE u.login=? AND u.role='parent'",email).first();
  if(!(await verifySecret(String(input.code||'').trim().toUpperCase(),user?.recovery_hash))){await countFailure(env,'recover:'+email,3600000);fail(401,'E-mailadres of herstelcode klopt niet.');}
+ if(user.blocked_at)fail(403,PAUSED);
  if(typeof input.password!=='string'||input.password.length<10)fail(400,'Kies een nieuw wachtwoord van minimaal 10 tekens.');
  const code=recoveryCode();await q(env,'UPDATE users SET pw_hash=?,recovery_hash=? WHERE id=?',await hashSecret(input.password),await hashSecret(code),user.id).run();
  await q(env,'DELETE FROM sessions WHERE user_id=?',user.id).run();await audit(env,{family:user.family_id,id:user.id},'password-recovered');await clearThrottle(env,'recover:'+email);
@@ -167,17 +177,58 @@ async function importFamily(env,user,input){
  await env.DB.batch(stmts);await audit(env,user,'imported',`${profiles.length} profielen, ${modules.length} modules, ${attempts.length} resultaten, ${skipped} overgeslagen`);
  return {profiles:map,skipped};
 }
+// Removes a family with all logins, records and uploaded files. Used by the family itself and by the administrator.
+async function purgeFamily(env,family){
+ await deletePrefix(env,family+'/');
+ await env.DB.batch(['DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE family_id=?)','DELETE FROM items WHERE family_id=?','DELETE FROM usage WHERE family_id=?','DELETE FROM audit WHERE family_id=?','DELETE FROM users WHERE family_id=?','DELETE FROM families WHERE id=?'].map(sql=>q(env,sql,family)));
+}
 async function deleteFamily(env,request,user,input){
  parentOnly(user);const row=await q(env,'SELECT pw_hash FROM users WHERE id=?',user.id).first();if(!(await verifySecret(String(input.password||''),row.pw_hash)))fail(401,'Het wachtwoord klopt niet. Er is niets verwijderd.');
- await deletePrefix(env,user.family+'/');
- await env.DB.batch(['DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE family_id=?)','DELETE FROM items WHERE family_id=?','DELETE FROM usage WHERE family_id=?','DELETE FROM audit WHERE family_id=?','DELETE FROM users WHERE family_id=?','DELETE FROM families WHERE id=?'].map(sql=>q(env,sql,user.family)));
+ await purgeFamily(env,user.family);
  return json({ok:true},200,{'Set-Cookie':sessionCookie('',request.url,0)});
+}
+
+// Beheer: invitations and an overview of the trial families. Shows counts and the parent's e-mail, never learning content.
+async function adminOverview(env){
+ const families=(await q(env,`SELECT f.id,f.name,f.created,f.blocked_at AS blocked,f.last_seen AS lastSeen,f.ai_consent_at IS NOT NULL AS aiConsent,
+  (SELECT login FROM users WHERE family_id=f.id AND role='parent' ORDER BY created LIMIT 1) AS email,
+  (SELECT count(*) FROM users WHERE family_id=f.id AND role='child') AS children,
+  (SELECT count(*) FROM items WHERE family_id=f.id AND kind='module' AND id<>'demo') AS modules,
+  (SELECT count(*) FROM items WHERE family_id=f.id AND kind='attempt') AS attempts,
+  (SELECT analyses FROM usage WHERE family_id=f.id AND month=?) AS analyses,
+  (SELECT code FROM invites WHERE family_id=f.id) AS invite
+  FROM families f ORDER BY f.created DESC`,month()).all()).results.map(f=>({...f,aiConsent:!!f.aiConsent,analyses:f.analyses||0}));
+ const invites=(await q(env,`SELECT i.code,i.note,i.created,i.used_at AS usedAt,i.family_id AS family,(SELECT login FROM users WHERE family_id=i.family_id AND role='parent' ORDER BY created LIMIT 1) AS email FROM invites i ORDER BY i.created DESC`).all()).results;
+ return {families,invites,inviteRequired:inviteRequired(env),sharedCode:!!env.INVITE_CODE,limit:limit(env,'AI_MONTHLY_LIMIT',30)};
+}
+async function adminRoute(env,request,user,parts,method){
+ if(!isAdmin(env,user))fail(403,'Alleen de beheerder van Leerstap kan dit.');
+ if(parts.length===1&&method==='GET')return adminOverview(env);
+ if(parts[1]==='invites'&&parts.length===2&&method==='POST'){
+  const note=String((await body(request)).note||'').trim().slice(0,80),now=Date.now();
+  let code;for(let i=0;i<5&&!code;i++){const c=inviteCode();if(!(await q(env,'SELECT 1 FROM invites WHERE code=?',c).first()))code=c;}
+  await q(env,'INSERT INTO invites(code,note,created) VALUES(?,?,?)',code,note,now).run();await audit(env,user,'admin-invite',`${code} ${note}`);
+  return {invite:{code,note,created:now,usedAt:null,family:null,email:null}};
+ }
+ if(parts[1]==='invites'&&parts.length===3&&method==='DELETE'){
+  const r=await q(env,'DELETE FROM invites WHERE code=? AND used_at IS NULL',parts[2]).run();if(!r.meta.changes)fail(409,'Deze uitnodiging is al gebruikt of bestaat niet meer.');
+  await audit(env,user,'admin-invite-revoked',parts[2]);return {ok:true};
+ }
+ if(parts[1]==='families'&&parts.length===4&&method==='POST'){
+  const id=parts[2],target=await q(env,'SELECT id FROM families WHERE id=?',id).first();if(!target)fail(404,'Gezin niet gevonden.');
+  if(id===user.family)fail(400,'Dit is je eigen gezin. Gebruik daarvoor Gezin & instellingen.');
+  const input=await body(request);
+  if(parts[3]==='pause'){const on=input.paused===true;await q(env,'UPDATE families SET blocked_at=? WHERE id=?',on?Date.now():null,id).run();if(on)await q(env,'DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE family_id=?)',id).run();await audit(env,user,on?'admin-paused':'admin-resumed',id);return {paused:on};}
+  if(parts[3]==='recovery'){const parent=await q(env,"SELECT id FROM users WHERE family_id=? AND role='parent' ORDER BY created LIMIT 1",id).first();if(!parent)fail(404,'Dit gezin heeft geen ouderaccount.');const code=recoveryCode();await q(env,'UPDATE users SET recovery_hash=? WHERE id=?',await hashSecret(code),parent.id).run();await audit(env,user,'admin-recovery-code',id);return {recoveryCode:code};}
+  if(parts[3]==='delete'){const row=await q(env,'SELECT pw_hash FROM users WHERE id=?',user.id).first();if(!(await verifySecret(String(input.password||''),row.pw_hash)))fail(401,'Je wachtwoord klopt niet. Er is niets verwijderd.');await purgeFamily(env,id);await audit(env,user,'admin-deleted-family',id);return {ok:true};}
+ }
+ fail(404,'Niet gevonden.');
 }
 
 async function route(request,env){
  const url=new URL(request.url),path=url.pathname,method=request.method;
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)fail(403,'Ongeldige herkomst.');
- if(path==='/api/status')return json({version:APP_VERSION,configured:!!env.OPENAI_API_KEY,model:env.OPENAI_MODEL||'gpt-4.1-mini',inviteRequired:!!env.INVITE_CODE});
+ if(path==='/api/status')return json({version:APP_VERSION,configured:!!env.OPENAI_API_KEY,model:env.OPENAI_MODEL||'gpt-4.1-mini',inviteRequired:inviteRequired(env)});
  if(path==='/api/signup'&&method==='POST')return signup(env,request,await body(request));
  if(path==='/api/login'&&method==='POST')return login(env,request,await body(request));
  if(path==='/api/recover'&&method==='POST')return recover(env,request,await body(request));
@@ -209,6 +260,7 @@ async function route(request,env){
  if(path==='/api/family/name'&&method==='POST'){parentOnly(user);const name=String((await body(request)).name||'').trim().slice(0,60);if(!name)fail(400,'Vul een gezinsnaam in.');await q(env,'UPDATE families SET name=? WHERE id=?',name,user.family).run();return json({ok:true});}
  if(path==='/api/export'&&method==='GET')return json(await exportFamily(env,user));
  if(path==='/api/import'&&method==='POST')return json(await importFamily(env,user,await body(request,20000000)));
+ if(parts[0]==='admin')return json(await adminRoute(env,request,user,parts,method));
  if(path==='/api/family/delete'&&method==='POST')return deleteFamily(env,request,user,await body(request));
  fail(404,'Niet gevonden.');
 }

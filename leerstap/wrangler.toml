@@ -31,6 +31,10 @@ jurisdiction = "eu"
 [vars]
 OPENAI_MODEL = "gpt-4.1-mini"
 AI_MONTHLY_LIMIT = "30"
+# Alleen met een uitnodiging een account maken (persoonlijke uitnodigingen via Beheer).
+INVITE_ONLY = "true"
+# Wie de pagina Beheer ziet: e-mailadressen van ouderaccounts, gescheiden door komma's.
+ADMIN_EMAILS = "jmvdneut88@gmail.com"
 # Geheimen (niet hier invullen): `npx wrangler secret put OPENAI_API_KEY` en eventueel INVITE_CODE.
 
 [triggers]

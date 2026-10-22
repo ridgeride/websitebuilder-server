@@ -1,5 +1,17 @@
 # Wijzigingen
 
+## 0.4.0 — 22 oktober 2026
+
+Beheer voor de proefperiode.
+
+- **Pagina Beheer** (alleen voor de e-mailadressen in `ADMIN_EMAILS`): persoonlijke uitnodigingen maken, met een code die één keer werkt, een link en een kant-en-klaar bericht om te kopiëren. Open uitnodigingen kun je intrekken.
+- **Uitnodigingslink:** `leerstap.nl/?uitnodiging=CODE` opent "Account maken" met de code al ingevuld.
+- **Gezinnen beheren:** overzicht met e-mailadres van de ouder, aantal leerlingen, leermodules, oefensessies, AI-gebruik deze maand, aanmelddatum, uitnodiging en laatst actief. Geen leerstof, antwoorden of namen van kinderen.
+- **Pauzeren en hervatten:** een gepauzeerd gezin wordt overal afgemeld en kan niet inloggen; de gegevens blijven bewaard.
+- **Nieuwe herstelcode** voor een ouder die de code kwijt is, en **gezin verwijderen** (met je eigen wachtwoord ter bevestiging), inclusief alle bestanden.
+- `INVITE_ONLY = "true"` maakt een uitnodiging verplicht, ook zonder algemene `INVITE_CODE`.
+- Database-migratie `0002_beheer.sql` (tabel `invites`, kolommen `blocked_at` en `last_seen`). Bestaande gegevens blijven staan.
+
 ## 0.3.0 — 22 oktober 2026
 
 Van een app op één apparaat naar een website met gezinsaccounts.
