@@ -1,5 +1,13 @@
 # Wijzigingen
 
+## 0.9.1 — 22 oktober 2026
+
+- **Gedraaide foto’s:** de draaiing die een telefoon apart opslaat, wordt nu toegepast voordat een foto wordt bewaard of gelezen. Blijft het resultaat slecht, dan probeert Leerstap de foto een kwartslag en een halve slag gedraaid en kiest de beste stand.
+- **Ruis opruimen:** regels met alleen tekens van randen, schaduwen of de tafel (zoals `== —_—`) worden weggelaten.
+- **Automatisch naar de AI** als de herkenning op het apparaat te onzeker is (en AI-toestemming gegeven is).
+- **Opnieuw lezen** in het controlescherm, voor foto’s die eerder onzin-tekst kregen.
+- Hersteld: het verkleinen van foto’s bij uploaden werkte online niet, omdat de beveiligingsregels van de site een tussenstap blokkeerden.
+
 ## 0.9.0 — 22 oktober 2026
 
 Goedkoper, zonder in te leveren op "alleen uit het boek".

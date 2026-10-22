@@ -1,4 +1,4 @@
-# Leerstap 0.9.0
+# Leerstap 0.9.1
 
 Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders. Upload je leerstof, laat AI er een samenvatting en oefenvragen van maken, en oefen tot je het snapt. Fouten komen terug, eerst met uitleg. Proefwerken kun je online maken of als PDF printen, met opgaven en antwoorden apart.
 

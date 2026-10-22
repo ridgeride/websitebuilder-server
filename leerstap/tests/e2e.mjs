@@ -78,8 +78,10 @@ try{
  await step('Foto van het boek: tekst op het apparaat lezen (gratis), controleren, eventueel door de AI, foto’s verwijderen, dan analyseren',async()=>{
   // A real photo-like page with text, so the on-device recognition is really exercised.
   const PHOTO=Buffer.from((await parent.evaluate(()=>{const c=document.createElement('canvas');c.width=1400;c.height=700;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.fillStyle='#111';g.font='44px Georgia';
-   ['1.2 Klimaat','Het klimaat is het gemiddelde weer','over een periode van dertig jaar','in een gebied.'].forEach((t,i)=>g.fillText(t,70,120+i*90));return c.toDataURL('image/png').split(',')[1];})),'base64');
-  await parent.selectOption('#up-subject','Aardrijkskunde');await parent.fill('#up-chapter','H1 Klimaat');await parent.setInputFiles('#files',{name:'blz-12.png',mimeType:'image/png',buffer:PHOTO});
+   ['1.2 Klimaat','Het klimaat is het gemiddelde weer','over een periode van dertig jaar','in een gebied.'].forEach((t,i)=>g.fillText(t,70,120+i*90));
+   // Taken sideways, as phones often do: Leerstap has to find the right way up itself.
+   const r=document.createElement('canvas');r.width=c.height;r.height=c.width;const h=r.getContext('2d');h.translate(r.width/2,r.height/2);h.rotate(Math.PI/2);h.drawImage(c,-c.width/2,-c.height/2);return r.toDataURL('image/jpeg',.92).split(',')[1];})),'base64');
+  await parent.selectOption('#up-subject','Aardrijkskunde');await parent.fill('#up-chapter','H1 Klimaat');await parent.setInputFiles('#files',{name:'blz-12.jpg',mimeType:'image/jpeg',buffer:PHOTO});
   const map='.card.map:has-text("H1 Klimaat")';await parent.waitForSelector(`${map} :text("foto: eerst de tekst uitlezen")`);assert.equal(await parent.$(`${map} [data-action="analyse"]`),null,'no analysis straight from a photo');
   const t0=Date.now();await parent.click(`${map} [data-action="map-read"]`);await parent.waitForSelector('dialog.review textarea',{timeout:90000});
   const read=await parent.inputValue('dialog.review textarea');console.log(`\n    (tekst op het apparaat gelezen in ${Math.round((Date.now()-t0)/1000)} s: ${JSON.stringify(read.slice(0,80))})`);
