@@ -4,6 +4,12 @@ main = "worker/index.js"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
+# Eigen domein; Cloudflare maakt DNS en HTTPS-certificaat zelf aan.
+routes = [
+  { pattern = "leerstap.nl", custom_domain = true },
+  { pattern = "www.leerstap.nl", custom_domain = true },
+]
+
 [assets]
 directory = "dist/public"
 binding = "ASSETS"
@@ -13,7 +19,7 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "leerstap"
-database_id = "VUL-IN-NA-AANMAKEN"
+database_id = "5ab2ad76-ba93-4432-9b18-5853d7d127ad"
 migrations_dir = "migrations"
 
 # Bestandsopslag voor geüploade bronnen, binnen de EU.
