@@ -21,10 +21,25 @@ export function grade(q,answer,steps=''){
  return {points:0,pending:true,confidence:'review nodig',feedback:'Een ouder beoordeelt inhoud, notatie en tussenstappen met het puntenmodel.',category:'Inhoud / uitwerking'};
 }
 export function totals(results,questions){let max=questions.reduce((a,q)=>a+q.points,0),points=results.reduce((a,r)=>a+r.points,0);return {max,points,pending:results.some(r=>r.pending),grade:max?Math.round((1+9*points/max)*10)/10:1};}
-export function nextReview(previous,correct,now=Date.now()){let interval=correct?Math.min(30,(previous?.interval||0)?previous.interval*2:1):1;return {interval,due:now+interval*86400000};}
+export function nextReview(previous,correct,now=Date.now()){let interval=correct?Math.min(30,(previous?.interval||0)?previous.interval*2:1):0;return {interval,due:now+(correct?interval*86400000:600000)};}
 export function chooseQuestions(module,attempts,profile,level='adaptief',count=5,now=Date.now()){
  let history=attempts.filter(a=>a.profile===profile),scores=new Map();for(let a of history)for(let i=0;i<a.questions.length;i++){let q=a.questions[i],r=a.results?.[i];if(r&&!r.pending)scores.set(q.id,{...r,due:a.review?.[q.id]?.due||0});}
  let pool=module.questions.filter(q=>level==='adaptief'||q.level===Number(level));return pool.map((q,i)=>({q,rank:!scores.has(q.id)?2:scores.get(q.id).points<q.points?0:scores.get(q.id).due<=now?1:3,i})).sort((a,b)=>a.rank-b.rank||a.i-b.i).slice(0,count).map(x=>x.q);
+}
+// Repeats are practice-only; an assisted success is not independent recall.
+export function schedulePractice(d,index,result){
+ if(d.mode!=='practice'||result.pending)return false;
+ const q=d.questions[index],prior=d.questions.slice(0,index).map((v,i)=>({q:v,r:d.results[i]})).filter(x=>x.q.id===q.id&&x.r&&!x.r.pending);
+ const wrong=result.points<q.points;
+ let streak=0;
+ for(const x of prior){if(x.r.points<x.q.points||x.q.support)streak=0;else streak++;}
+ const recovering=q.repeat||prior.some(x=>x.r.points<x.q.points);
+ if(!wrong&&!q.support&&(!recovering||streak>=1))return false;
+ const at=Math.min(index+3,d.questions.length);
+ d.questions.splice(at,0,{...q,repeat:true,support:wrong});
+ while(d.answers.length<at)d.answers.push(null);
+ while(d.results.length<at)d.results.push(null);
+ d.answers.splice(at,0,null);d.results.splice(at,0,null);return true;
 }
 export function validateModule(m,pages){
  if(!m||typeof m.title!=='string'||!Array.isArray(m.chapters)||!m.chapters.length||!Array.isArray(m.questions)||!m.questions.length)throw Error('Onvolledige analyse. Er is niets vrijgegeven.');

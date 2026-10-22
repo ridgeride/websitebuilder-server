@@ -1,4 +1,6 @@
-# Leerstap 0.1.0
+# Leerstap 0.2.0
+
+Lees eerst **UPDATE-0.2.0.md** voor de nieuwe herhalingen en actuele teststatus. Er is nog geen werkende online publicatie: gebruik de lokale installatie hieronder. Verwijzingen naar privéhosting beschrijven een toekomstige publicatie.
 
 Een Nederlandstalige gezinsleerapp voor 2 havo/vwo, uitbreidbaar naar andere vakken en niveaus. Dit is een werkende eerste versie, geen volledig leerlingvolgsysteem of beveiligde examenomgeving.
 
@@ -54,7 +56,7 @@ Het **leerarchief** bewaart modules met samenvattingen, begrippen, vragen en bro
 - Analyse: broncitaten en paginaverwijzingen worden gevalideerd. Tekstcitaten moeten letterlijk in de bron staan; scancitaten vragen visuele oudercontrole. Dit controleert herleidbaarheid, niet automatisch feitelijke juistheid. Vrijgave door een ouder is altijd nodig.
 - Beoordeling: eigen beperkte rekenparser, zonder `eval`. Alleen numerieke eindwaarden worden automatisch vergeleken met tolerantie. Geen algemene CAS voor algebra, eenheden, bewijs of complexe formules. Andere antwoorden krijgen ouderreview. Een fout numeriek antwoord met tussenstappen blijft open voor deelpunten. De betrouwbaarheid is een proceslabel, geen gekalibreerde kans.
 - Adaptief: eerdere fouten eerst, daarna vervallen herhalingen, dan nieuwe vragen. Dit is prioritering uit de aanwezige vragenbank, geen automatische onbeperkte vraaggeneratie of psychometrische niveauschatting.
-- Herhaling: 1 dag, verdubbeling na een goed antwoord tot 30 dagen, terug naar 1 dag bij fouten. Geen pushmeldingen.
+- Herhaling: fouten komen tijdens oefenen terug met uitleg, gevolgd door twee zelfstandige controles. Daarna een dag; goede antwoorden in volgende sessies krijgen langere intervallen tot 30 dagen. Fouten en geholpen antwoorden staan na tien minuten opnieuw klaar. Zie UPDATE-0.2.0.md voor de precieze werking. Geen pushmeldingen.
 - Cijfer: `1 + 9 × punten/totaal`, één decimaal. Niet bedoeld als officiële schoolnormering. Ouderreview overschrijft het voorstel en bewaart een toelichting.
 - Er is maximaal één actieve sessie in de gezinskluis. Starten van een nieuwe sessie vraagt bevestiging als een andere nog loopt.
 
