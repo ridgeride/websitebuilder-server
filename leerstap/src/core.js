@@ -48,17 +48,22 @@ export function validateModule(m,pages){
  for(let q of m.questions){if(!['numeric','open'].includes(q.kind)||!Number.isInteger(q.points)||q.points<1||q.points>10||![1,2,3].includes(q.level)||!['prompt','answer','explanation','hint','goal','rubric'].every(k=>typeof q[k]==='string'&&q[k].length))throw Error('Ongeldig vragenmodel');cite(q.cite);q.id=q.id||uid();}
  return m;
 }
+const isId=v=>typeof v==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(v),text=v=>typeof v==='string',list=v=>Array.isArray(v),image=v=>!v||(text(v)&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v)),optText=v=>v===undefined||v===null||text(v),optTime=v=>v===undefined||v===null||Number.isFinite(v);
+export {isId};
+// Shared by backup restore (browser) and the server, so both accept exactly the same records.
+export const validQuestion=q=>!!q&&isId(q.id)&&text(q.prompt)&&text(q.answer)&&text(q.goal)&&text(q.hint)&&text(q.rubric)&&text(q.explanation)&&['numeric','open'].includes(q.kind)&&Number.isInteger(q.points)&&q.points>0&&q.points<=10&&[1,2,3].includes(q.level)&&isId(q.cite?.source)&&Number.isInteger(q.cite.page)&&text(q.cite.quote);
+export const validProfile=p=>!!p&&isId(p.id)&&text(p.name)&&text(p.level)&&(p.subjects===undefined||list(p.subjects)&&p.subjects.every(text));
+export const validModule=m=>!!m&&isId(m.id)&&text(m.title)&&text(m.subject)&&text(m.level)&&list(m.questions)&&m.questions.length>0&&m.questions.every(validQuestion)&&list(m.chapters)&&!m.chapters.some(c=>!text(c.title)||!text(c.summary)||!list(c.goals)||!c.goals.every(text)||!list(c.terms)||c.terms.some(t=>!text(t.term)||!text(t.definition))||!isId(c.cite?.source)||!Number.isInteger(c.cite.page)||!text(c.cite.quote))&&list(m.warnings)&&m.warnings.every(text)&&['schoolYear','period','chapter','method'].every(k=>optText(m[k]))&&optTime(m.deletedAt);
+export const validPages=pages=>list(pages)&&!pages.some(p=>!isId(p.id)||!Number.isInteger(p.page)||p.page<1||!text(p.text)||!image(p.image));
+export const validDocumentMeta=d=>!!d&&isId(d.id)&&text(d.name)&&text(d.type)&&list(d.warnings)&&d.warnings.every(text)&&['subject','schoolYear','period','chapter','method'].every(k=>optText(d[k]))&&optTime(d.deletedAt);
+export const validDocument=d=>validDocumentMeta(d)&&text(d.data)&&validPages(d.pages);
+export const validSession=a=>!!a&&isId(a.profile)&&isId(a.module)&&text(a.title)&&['practice','test'].includes(a.mode)&&list(a.questions)&&a.questions.length>0&&a.questions.every(validQuestion)&&list(a.answers)&&a.answers.every(x=>x===null||!!x&&text(x.answer)&&text(x.steps));
+export const validAttempt=a=>isId(a?.id)&&validSession(a)&&list(a.results)&&a.results.length===a.questions.length&&!a.results.some((r,i)=>!r||!Number.isFinite(r.points)||r.points<0||r.points>a.questions[i].points||typeof r.pending!=='boolean'||!text(r.feedback)||!text(r.confidence)||!text(r.category))&&!!a.review&&typeof a.review==='object';
 export function validateState(s){
  const fail=()=>{throw Error('Onbekende of beschadigde back-up. Bestaande gegevens zijn behouden.');};
- const id=v=>typeof v==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(v),text=v=>typeof v==='string',list=v=>Array.isArray(v),image=v=>!v||(text(v)&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v));
- const question=q=>q&&id(q.id)&&text(q.prompt)&&text(q.answer)&&text(q.goal)&&text(q.hint)&&text(q.rubric)&&text(q.explanation)&&['numeric','open'].includes(q.kind)&&Number.isInteger(q.points)&&q.points>0&&q.points<=10&&[1,2,3].includes(q.level)&&id(q.cite?.source)&&Number.isInteger(q.cite.page)&&text(q.cite.quote);
  if(s?.version!==1||!list(s.profiles)||!s.profiles.length||!list(s.modules)||!list(s.attempts)||!list(s.documents))fail();
- if(s.profiles.some(p=>!id(p.id)||!text(p.name)||!text(p.level)||(p.subjects!==undefined&&(!list(p.subjects)||!p.subjects.every(text)))))fail();
- if(s.documents.some(d=>!id(d.id)||!text(d.name)||!text(d.data)||!text(d.type)||!list(d.warnings)||!d.warnings.every(text)||!list(d.pages)||d.pages.some(p=>!id(p.id)||!Number.isInteger(p.page)||p.page<1||!text(p.text)||!image(p.image))))fail();
- if(s.modules.some(m=>!id(m.id)||!text(m.title)||!text(m.subject)||!text(m.level)||!list(m.questions)||!m.questions.length||!m.questions.every(question)||!list(m.chapters)||m.chapters.some(c=>!text(c.title)||!text(c.summary)||!list(c.goals)||!c.goals.every(text)||!list(c.terms)||c.terms.some(t=>!text(t.term)||!text(t.definition))||!id(c.cite?.source)||!Number.isInteger(c.cite.page)||!text(c.cite.quote))||!list(m.warnings)||!m.warnings.every(text)))fail();
- const session=a=>a&&id(a.profile)&&id(a.module)&&text(a.title)&&['practice','test'].includes(a.mode)&&list(a.questions)&&a.questions.length&&a.questions.every(question)&&list(a.answers)&&a.answers.every(x=>x===null||x&&text(x.answer)&&text(x.steps));
- if(s.attempts.some(a=>!id(a.id)||!session(a)||!list(a.results)||a.results.length!==a.questions.length||a.results.some((r,i)=>!r||!Number.isFinite(r.points)||r.points<0||r.points>a.questions[i].points||typeof r.pending!=='boolean'||!text(r.feedback)||!text(r.confidence)||!text(r.category))||!a.review||typeof a.review!=='object'))fail();
- if(s.draft&&!session(s.draft))fail();return s;
+ if(!s.profiles.every(validProfile)||!s.documents.every(validDocument)||!s.modules.every(validModule)||!s.attempts.every(validAttempt))fail();
+ if(s.draft&&!validSession(s.draft))fail();return s;
 }
 export function demoModule(){
  const cite={source:'voorbeeld',page:1,quote:'Een vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal onder het wortelteken oplevert.'};

@@ -1,6 +1,8 @@
 dist/
-site.tar.gz
 node_modules/
+data/
+.wrangler/
+.dev.vars
 .env
 .env.*
 !.env.example

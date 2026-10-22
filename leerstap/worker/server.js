@@ -1,0 +1,218 @@
+import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSession,validPages,validProfile} from '../src/core.js';
+import {analysePages,HttpError} from './analyse.js';
+import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,throttled,countFailure,clearThrottle} from './auth.js';
+
+export const APP_VERSION='0.3.0';
+const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
+const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
+const MODULE_META=['title','subject','schoolYear','period','chapter','method','deletedAt'];
+const DOCUMENT_META=['name','subject','schoolYear','period','chapter','method','deletedAt'];
+const json=(o,status=200,headers={})=>new Response(JSON.stringify(o),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
+const fail=(status,message)=>{throw new HttpError(status,message);};
+const pick=(o,keys)=>Object.fromEntries(keys.filter(k=>k in o).map(k=>[k,o[k]]));
+const q=(env,sql,...args)=>env.DB.prepare(sql).bind(...args.map(v=>v===undefined?null:v));
+const audit=(env,user,action,detail='')=>q(env,'INSERT INTO audit(family_id,user_id,action,detail,at) VALUES(?,?,?,?,?)',user?.family,user?.id,action,String(detail).slice(0,500),Date.now()).run();
+const month=()=>new Date().toISOString().slice(0,7);
+const clientIp=request=>request.headers.get('CF-Connecting-IP')||'local';
+const normEmail=v=>String(v||'').trim().toLowerCase();
+const validEmail=v=>v.length<=200&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);
+const validChildLogin=v=>/^[a-z0-9][a-z0-9._-]{2,29}$/.test(v);
+const limit=(env,name,fallback)=>Number(env[name])>0?Number(env[name]):fallback;
+
+async function body(request,max=MAX_ITEM){
+ const length=Number(request.headers.get('content-length')||0);if(length>max)fail(413,'Te veel gegevens in één keer. Verdeel het materiaal.');
+ const raw=await request.text();if(raw.length>max)fail(413,'Te veel gegevens in één keer. Verdeel het materiaal.');
+ try{return JSON.parse(raw||'{}');}catch{fail(400,'Ongeldige gegevens.');}
+}
+function profileOut(row){const p=JSON.parse(row.profile||'{}');return {id:row.id,name:row.name,level:p.level||'',schoolType:p.schoolType,year:p.year,subjects:p.subjects,login:row.login||null};}
+function profileIn(input,existing={}){
+ const name=String(input.name??existing.name??'').trim().slice(0,40),schoolType=input.schoolType??existing.schoolType??'havo/vwo',year=Number(input.year??existing.year??1);
+ if(!name)fail(400,'Vul een naam of bijnaam in.');if(!SCHOOL_TYPES.includes(schoolType))fail(400,'Kies een schooltype uit de lijst.');
+ const max=schoolType.startsWith('vmbo')?4:schoolType==='havo'?5:6;if(!Number.isInteger(year)||year<1||year>max)fail(400,`Dit schooltype heeft leerjaar 1 tot en met ${max}.`);
+ const subjects=input.subjects??existing.subjects??['Wiskunde'];if(!Array.isArray(subjects)||!subjects.length||subjects.length>30||!subjects.every(s=>typeof s==='string'&&s.trim()&&s.length<=50))fail(400,'Kies minstens één vak.');
+ return {name,profile:{schoolType,year,level:`${year} ${schoolType}`,subjects:[...new Set(subjects.map(s=>s.trim()))]}};
+}
+async function getItem(env,family,kind,id){const row=await q(env,'SELECT data,rev,owner FROM items WHERE family_id=? AND kind=? AND id=?',family,kind,id).first();return row&&{data:JSON.parse(row.data),rev:row.rev,owner:row.owner};}
+async function putRow(env,family,kind,id,owner,data,rev){const text=JSON.stringify(data);if(text.length>MAX_ITEM)fail(413,'Dit onderdeel is te groot om op te slaan.');
+ if(rev===1){const r=await q(env,'INSERT INTO items(family_id,kind,id,owner,data,rev,updated) VALUES(?,?,?,?,?,1,?) ON CONFLICT DO NOTHING',family,kind,id,owner,text,Date.now()).run();if(!r.meta.changes)fail(409,'Dit onderdeel bestaat al. Vernieuw de pagina.');}
+ else{const r=await q(env,'UPDATE items SET data=?,owner=?,rev=?,updated=? WHERE family_id=? AND kind=? AND id=? AND rev=?',text,owner,rev,Date.now(),family,kind,id,rev-1).run();if(!r.meta.changes)fail(409,'Dit is intussen op een ander apparaat gewijzigd. De nieuwste versie wordt geladen.');}
+ return rev;}
+async function childOf(env,user,profileId){const row=await q(env,"SELECT id FROM users WHERE id=? AND family_id=? AND role='child'",profileId,user.family).first();if(!row)fail(403,'Dit leerlingprofiel hoort niet bij jouw gezin.');if(user.role==='child'&&profileId!==user.id)fail(403,'Je kunt alleen je eigen voortgang bewaren.');}
+const parentOnly=user=>{if(user.role!=='parent')fail(403,'Dit kan alleen een ouder doen.');};
+const filesPrefix=(family,id)=>`${family}/documents/${id}/`;
+async function deletePrefix(env,prefix){let cursor;do{const list=await env.FILES.list({prefix,cursor});if(list.objects.length)await env.FILES.delete(list.objects.map(o=>o.key));cursor=list.truncated?list.cursor:undefined;}while(cursor);}
+
+async function state(env,user){
+ const children=(await q(env,"SELECT id,name,login,profile FROM users WHERE family_id=? AND role='child' ORDER BY created",user.family).all()).results.filter(r=>user.role==='parent'||r.id===user.id).map(profileOut);
+ const own=user.role==='parent'?'':' AND owner=?',args=user.role==='parent'?[user.family]:[user.family,user.id];
+ const rows=[...(await q(env,"SELECT kind,id,data,rev FROM items WHERE family_id=? AND kind IN ('module','document')",user.family).all()).results,...(await q(env,`SELECT kind,id,data,rev FROM items WHERE family_id=? AND kind IN ('attempt','draft')${own}`,...args).all()).results];
+ const out={version:1,profiles:children,modules:[],documents:[],attempts:[],drafts:{},revs:{}};
+ for(const r of rows){const data=JSON.parse(r.data);out.revs[r.kind+':'+r.id]=r.rev;if(r.kind==='draft')out.drafts[r.id]=data;else out[r.kind+'s'].push(data);}
+ out.attempts.sort((a,b)=>a.created-b.created);out.modules.sort((a,b)=>(a.created||0)-(b.created||0));
+ const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first();
+ return {...out,me:{id:user.id,role:user.role,name:user.name,login:user.login,familyName:user.familyName,aiConsent:user.aiConsent},usage:{analyses:used?.analyses||0,limit:limit(env,'AI_MONTHLY_LIMIT',30)}};
+}
+
+async function putItem(env,user,kind,id,input){
+ if(!isId(id)||!input||typeof input.data!=='object'||input.data?.id!==undefined&&input.data.id!==id&&kind!=='draft')fail(400,'Ongeldig onderdeel.');
+ const existing=await getItem(env,user.family,kind,id),rev=(existing?.rev||0)+1;if(existing&&input.rev!==existing.rev)fail(409,'Dit is intussen op een ander apparaat gewijzigd. De nieuwste versie wordt geladen.');
+ let data=input.data,owner=null;
+ if(kind==='module'){
+  if(!existing){parentOnly(user);if(!validModule({...data,id}))fail(400,'Ongeldige leerstof.');}
+  else if(user.role==='child')data={...existing.data,...pick(data,MODULE_META)};
+  else if(!existing.data.approved&&data.approved)await audit(env,user,'module-approved',id);
+  data={...data,id};if(!validModule(data))fail(400,'Ongeldige leerstof.');
+ }else if(kind==='document'){
+  if(!existing)fail(404,'Bron niet gevonden.');
+  data={...existing.data,...pick(data,DOCUMENT_META),id};if(!validDocumentMeta(data))fail(400,'Ongeldige broninformatie.');
+ }else if(kind==='attempt'){
+  if(existing){parentOnly(user);if(data.profile!==existing.data.profile)fail(400,'Een resultaat blijft bij dezelfde leerling.');await audit(env,user,'attempt-reviewed',id);}
+  data={...data,id};if(!validAttempt(data))fail(400,'Ongeldig resultaat.');await childOf(env,user,data.profile);owner=data.profile;
+ }else if(kind==='draft'){
+  if(data.profile!==id||!validSession(data))fail(400,'Ongeldige oefensessie.');await childOf(env,user,id);owner=id;
+ }else fail(404,'Onbekend onderdeel.');
+ return {rev:await putRow(env,user.family,kind,id,owner,data,rev)};
+}
+
+async function deleteItem(env,user,kind,id){
+ const existing=await getItem(env,user.family,kind,id);if(!existing)return {ok:true};
+ if(kind==='draft')await childOf(env,user,id);
+ else{parentOnly(user);
+  if(kind==='document'){const used=await q(env,"SELECT 1 FROM items WHERE family_id=? AND kind IN ('module','attempt','draft') AND instr(data,?)>0 LIMIT 1",user.family,`"source":"${id}"`).first();if(used)fail(409,'Deze bron hoort nog bij leerstof of een toetsresultaat. Bewaar hem voor controle.');await deletePrefix(env,filesPrefix(user.family,id));}
+  await audit(env,user,'deleted-'+kind,id);}
+ await q(env,'DELETE FROM items WHERE family_id=? AND kind=? AND id=?',user.family,kind,id).run();return {ok:true};
+}
+
+async function uploadDocument(env,user,input){
+ const meta=input?.meta||{},pages=input?.pages,data=input?.data;
+ if(typeof data!=='string'||data.length>14500000||!/^[A-Za-z0-9+/=]*$/.test(data))fail(400,'Bestand ontbreekt of is groter dan 10 MB.');
+ if(!validPages(pages)||!pages.length||pages.length>30)fail(400,'Ongeldige bronpagina’s.');
+ let id=isId(meta.id)&&!(await getItem(env,user.family,'document',meta.id))?meta.id:uid();
+ const doc={...pick(meta,DOCUMENT_META),id,name:String(meta.name||'Bron').slice(0,150),type:String(meta.type||'application/octet-stream').slice(0,100),warnings:Array.isArray(meta.warnings)?meta.warnings.filter(w=>typeof w==='string').slice(0,40):[],pageCount:pages.length,created:Number(meta.created)||Date.now(),uploadedBy:user.id};
+ delete doc.deletedAt;if(!validDocumentMeta(doc))fail(400,'Ongeldige broninformatie.');
+ const pagesWithId=pages.map(p=>({...p,id}));
+ await env.FILES.put(filesPrefix(user.family,id)+'pages.json',JSON.stringify(pagesWithId),{httpMetadata:{contentType:'application/json'}});
+ await env.FILES.put(filesPrefix(user.family,id)+'original',Uint8Array.from(atob(data),c=>c.charCodeAt(0)),{httpMetadata:{contentType:doc.type}});
+ return {document:doc,rev:await putRow(env,user.family,'document',id,null,doc,1)};
+}
+async function documentPages(env,user,id){if(!(await getItem(env,user.family,'document',id)))fail(404,'Bron niet gevonden.');const obj=await env.FILES.get(filesPrefix(user.family,id)+'pages.json');if(!obj)fail(404,'Bronpagina’s niet gevonden.');return JSON.parse(await obj.text());}
+
+async function analyse(env,user,input){
+ if(input.consent===true&&user.role==='parent'&&!user.aiConsent){await q(env,'UPDATE families SET ai_consent_at=? WHERE id=?',Date.now(),user.family).run();await audit(env,user,'ai-consent','on');user.aiConsent=true;}
+ if(!user.aiConsent)fail(403,user.role==='parent'?'Geef eerst toestemming om leerstof naar de AI-dienst te sturen.':'Een ouder moet eerst toestemming geven voor AI-analyse (Gezin & instellingen).');
+ const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>30||!ids.every(isId))fail(400,'Selecteer eerst een bron.');
+ const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first(),max=limit(env,'AI_MONTHLY_LIMIT',30);
+ if((used?.analyses||0)>=max)fail(429,`Jullie maandlimiet van ${max} analyses is bereikt. Volgende maand kan het weer.`);
+ const docs=[],pages=[];for(const id of ids){const d=await getItem(env,user.family,'document',id);if(!d||d.data.deletedAt)fail(404,'Een geselecteerde bron bestaat niet meer.');docs.push(d.data);pages.push(...await documentPages(env,user,id));}
+ const record=usage=>q(env,'INSERT INTO usage(family_id,month,analyses,input_tokens,output_tokens) VALUES(?,?,1,?,?) ON CONFLICT(family_id,month) DO UPDATE SET analyses=analyses+1,input_tokens=input_tokens+excluded.input_tokens,output_tokens=output_tokens+excluded.output_tokens',user.family,month(),usage?.input||0,usage?.output||0).run();
+ let result;try{result=await analysePages(pages,{subject:input.subject,level:input.level},env);}catch(e){if(e.usage)await record(e.usage);throw e;}
+ await record(result.usage);
+ const meta=pick(input.meta||{},['schoolYear','period','chapter','method']);for(const k in meta)meta[k]=String(meta[k]).slice(0,150);
+ const m={...result.module,...meta,id:uid(),subject:String(input.subject||'Overig').slice(0,80),level:String(input.level||'').slice(0,80),sourceNames:Object.fromEntries(docs.map(d=>[d.id,d.name])),approved:false,created:Date.now(),createdBy:user.id};
+ if(!validModule(m))fail(422,'De analyse leverde geen bruikbare leerstof op. Probeer duidelijkere pagina’s.');
+ await audit(env,user,'analysed',`${m.id} ${pages.length}p ${result.usage.input}/${result.usage.output} tokens`);
+ return {module:m,rev:await putRow(env,user.family,'module',m.id,null,m,1)};
+}
+
+async function signup(env,request,input){
+ const ip=clientIp(request);if(await throttled(env,'signup:'+ip,10,3600000))fail(429,'Te veel nieuwe accounts vanaf dit netwerk. Probeer het over een uur opnieuw.');
+ if(env.INVITE_CODE&&String(input.invite||'').trim()!==env.INVITE_CODE)fail(403,'De uitnodigingscode klopt niet. Leerstap is nog in een besloten proef.');
+ if(input.accept!==true)fail(400,'Ga akkoord met de voorwaarden en het privacybeleid.');
+ const email=normEmail(input.email);if(!validEmail(email))fail(400,'Vul een geldig e-mailadres in.');
+ if(typeof input.password!=='string'||input.password.length<10||input.password.length>200)fail(400,'Kies een wachtwoord van minimaal 10 tekens.');
+ const child=profileIn({name:input.childName,schoolType:input.schoolType,year:input.year,subjects:input.subjects});
+ if(await q(env,'SELECT 1 FROM users WHERE login=?',email).first())fail(409,'Er bestaat al een account met dit e-mailadres. Log in of herstel je wachtwoord.');
+ await countFailure(env,'signup:'+ip,3600000);
+ const family=uid(),parent=uid(),childId=uid(),code=recoveryCode(),now=Date.now(),demo=demoModule();demo.created=now;
+ await env.DB.batch([
+  q(env,'INSERT INTO families(id,name,created) VALUES(?,?,?)',family,String(input.familyName||'Ons gezin').trim().slice(0,60)||'Ons gezin',now),
+  q(env,"INSERT INTO users(id,family_id,role,login,name,pw_hash,recovery_hash,profile,created) VALUES(?,?,'parent',?,?,?,?,'{}',?)",parent,family,email,String(input.parentName||'Ouder').trim().slice(0,40)||'Ouder',await hashSecret(input.password),await hashSecret(code),now),
+  q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",childId,family,child.name,JSON.stringify(child.profile),now+1),
+  q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'module','demo',?,1,?)",family,JSON.stringify(demo),now)]);
+ await audit(env,{family,id:parent},'signup');
+ return json({recoveryCode:code},200,{'Set-Cookie':sessionCookie(await createSession(env,parent),request.url)});
+}
+async function login(env,request,input){
+ const name=normEmail(input.login),ip=clientIp(request);
+ if(await throttled(env,'login:'+name,10,15*MINUTE)||await throttled(env,'ip:'+ip,50,15*MINUTE))fail(429,'Te veel pogingen. Wacht een kwartier en probeer het opnieuw.');
+ const user=await q(env,'SELECT id,pw_hash FROM users WHERE login=?',name).first();
+ if(!(await verifySecret(String(input.password||''),user?.pw_hash))){await countFailure(env,'login:'+name,15*MINUTE);await countFailure(env,'ip:'+ip,15*MINUTE);fail(401,'Gebruikersnaam of wachtwoord klopt niet.');}
+ await clearThrottle(env,'login:'+name);
+ return json({ok:true},200,{'Set-Cookie':sessionCookie(await createSession(env,user.id),request.url)});
+}
+async function recover(env,request,input){
+ const email=normEmail(input.email);if(await throttled(env,'recover:'+email,5,3600000))fail(429,'Te veel pogingen. Probeer het over een uur opnieuw.');
+ const user=await q(env,"SELECT id,family_id,recovery_hash FROM users WHERE login=? AND role='parent'",email).first();
+ if(!(await verifySecret(String(input.code||'').trim().toUpperCase(),user?.recovery_hash))){await countFailure(env,'recover:'+email,3600000);fail(401,'E-mailadres of herstelcode klopt niet.');}
+ if(typeof input.password!=='string'||input.password.length<10)fail(400,'Kies een nieuw wachtwoord van minimaal 10 tekens.');
+ const code=recoveryCode();await q(env,'UPDATE users SET pw_hash=?,recovery_hash=? WHERE id=?',await hashSecret(input.password),await hashSecret(code),user.id).run();
+ await q(env,'DELETE FROM sessions WHERE user_id=?',user.id).run();await audit(env,{family:user.family_id,id:user.id},'password-recovered');await clearThrottle(env,'recover:'+email);
+ return json({recoveryCode:code},200,{'Set-Cookie':sessionCookie(await createSession(env,user.id),request.url)});
+}
+
+async function exportFamily(env,user){
+ parentOnly(user);const s=await state(env,user);
+ const documents=[];for(const d of s.documents){const original=await env.FILES.get(filesPrefix(user.family,d.id)+'original');const bytes=new Uint8Array(original?await original.arrayBuffer():[]);let data='';for(let i=0;i<bytes.length;i+=8192)data+=String.fromCharCode(...bytes.subarray(i,i+8192));documents.push({...d,data:btoa(data),pages:await documentPages(env,user,d.id)});}
+ return {version:1,exported:Date.now(),app:APP_VERSION,profiles:s.profiles.map(({login,...p})=>p),modules:s.modules,documents,attempts:s.attempts,draft:null};
+}
+// Imports a decrypted backup from the device-only versions (0.1/0.2). Profiles become new children; documents follow via /api/documents.
+async function importFamily(env,user,input){
+ parentOnly(user);const profiles=input.profiles,modules=input.modules||[],attempts=input.attempts||[];
+ if(!Array.isArray(profiles)||!profiles.length||profiles.length>20||!profiles.every(validProfile)||!Array.isArray(modules)||!Array.isArray(attempts))fail(400,'Deze back-up kan niet worden ingelezen.');
+ const map={},stmts=[],now=Date.now();
+ for(const p of profiles){const id=uid(),c=profileIn({name:p.name,schoolType:SCHOOL_TYPES.includes(p.schoolType)?p.schoolType:'havo/vwo',year:p.year||Number(String(p.level).match(/\d/)?.[0])||2,subjects:p.subjects?.length?p.subjects:['Wiskunde']});map[p.id]=id;stmts.push(q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",id,user.family,c.name,JSON.stringify(c.profile),now+stmts.length));}
+ let skipped=0;
+ for(const m of modules){if(!validModule(m)||await getItem(env,user.family,'module',m.id)){skipped++;continue;}const t=JSON.stringify(m);if(t.length>MAX_ITEM){skipped++;continue;}stmts.push(q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'module',?,?,1,?)",user.family,m.id,t,now));}
+ for(const a of attempts){const r={...a,profile:map[a.profile]};if(!r.profile||!validAttempt(r)||await getItem(env,user.family,'attempt',a.id)){skipped++;continue;}stmts.push(q(env,"INSERT INTO items(family_id,kind,id,owner,data,rev,updated) VALUES(?,'attempt',?,?,?,1,?)",user.family,a.id,r.profile,JSON.stringify(r),now));}
+ await env.DB.batch(stmts);await audit(env,user,'imported',`${profiles.length} profielen, ${modules.length} modules, ${attempts.length} resultaten, ${skipped} overgeslagen`);
+ return {profiles:map,skipped};
+}
+async function deleteFamily(env,request,user,input){
+ parentOnly(user);const row=await q(env,'SELECT pw_hash FROM users WHERE id=?',user.id).first();if(!(await verifySecret(String(input.password||''),row.pw_hash)))fail(401,'Het wachtwoord klopt niet. Er is niets verwijderd.');
+ await deletePrefix(env,user.family+'/');
+ await env.DB.batch(['DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE family_id=?)','DELETE FROM items WHERE family_id=?','DELETE FROM usage WHERE family_id=?','DELETE FROM audit WHERE family_id=?','DELETE FROM users WHERE family_id=?','DELETE FROM families WHERE id=?'].map(sql=>q(env,sql,user.family)));
+ return json({ok:true},200,{'Set-Cookie':sessionCookie('',request.url,0)});
+}
+
+async function route(request,env){
+ const url=new URL(request.url),path=url.pathname,method=request.method;
+ if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)fail(403,'Ongeldige herkomst.');
+ if(path==='/api/status')return json({version:APP_VERSION,configured:!!env.OPENAI_API_KEY,model:env.OPENAI_MODEL||'gpt-4.1-mini',inviteRequired:!!env.INVITE_CODE});
+ if(path==='/api/signup'&&method==='POST')return signup(env,request,await body(request));
+ if(path==='/api/login'&&method==='POST')return login(env,request,await body(request));
+ if(path==='/api/recover'&&method==='POST')return recover(env,request,await body(request));
+ const session=await readSession(env,request);
+ if(path==='/api/session')return json({user:session?.user||null});
+ if(!session)fail(401,'Je bent niet (meer) ingelogd. Log opnieuw in.');
+ const user=session.user,parts=path.split('/').slice(2);
+ if(path==='/api/logout'&&method==='POST'){await q(env,'DELETE FROM sessions WHERE token_hash=?',session.hash).run();return json({ok:true},200,{'Set-Cookie':sessionCookie('',request.url,0)});}
+ if(path==='/api/state'&&method==='GET')return json(await state(env,user),200,session.renewed?{'Set-Cookie':sessionCookie(session.renewed,request.url)}:{});
+ if(parts[0]==='items'&&parts.length===3&&['module','document','attempt','draft'].includes(parts[1])){
+  if(method==='PUT')return json(await putItem(env,user,parts[1],parts[2],await body(request)));
+  if(method==='DELETE')return json(await deleteItem(env,user,parts[1],parts[2]));
+ }
+ if(path==='/api/documents'&&method==='POST')return json(await uploadDocument(env,user,await body(request,MAX_UPLOAD)));
+ if(parts[0]==='documents'&&parts.length===3&&method==='GET'){
+  if(parts[2]==='pages')return json({pages:await documentPages(env,user,parts[1])});
+  if(parts[2]==='original'){const d=await getItem(env,user.family,'document',parts[1]),obj=d&&await env.FILES.get(filesPrefix(user.family,parts[1])+'original');if(!obj)fail(404,'Bron niet gevonden.');return new Response(obj.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(d.data.name)}`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});}
+ }
+ if(path==='/api/analyse'&&method==='POST')return json(await analyse(env,user,await body(request)));
+ if(path==='/api/profiles'&&method==='POST'){parentOnly(user);const count=await q(env,"SELECT count(*) AS n FROM users WHERE family_id=? AND role='child'",user.family).first();if(count.n>=12)fail(400,'Maximaal 12 leerlingen per gezin.');const c=profileIn(await body(request)),id=uid();await q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",id,user.family,c.name,JSON.stringify(c.profile),Date.now()).run();return json({id});}
+ if(parts[0]==='profiles'&&parts[1]){
+  const row=await q(env,"SELECT id,name,login,profile FROM users WHERE id=? AND family_id=? AND role='child'",parts[1],user.family).first();if(!row||user.role==='child'&&row.id!==user.id)fail(404,'Leerling niet gevonden.');
+  if(parts.length===2&&method==='PUT'){const c=profileIn(await body(request),{name:row.name,...JSON.parse(row.profile)});await q(env,'UPDATE users SET name=?,profile=? WHERE id=?',c.name,JSON.stringify(c.profile),row.id).run();return json({profile:profileOut({...row,name:c.name,profile:JSON.stringify(c.profile)})});}
+  if(parts.length===2&&method==='DELETE'){parentOnly(user);const n=await q(env,"SELECT count(*) AS n FROM users WHERE family_id=? AND role='child'",user.family).first();if(n.n<=1)fail(400,'Een gezin heeft minstens één leerling.');await env.DB.batch([q(env,'DELETE FROM sessions WHERE user_id=?',row.id),q(env,"DELETE FROM items WHERE family_id=? AND kind IN ('attempt','draft') AND owner=?",user.family,row.id),q(env,'DELETE FROM users WHERE id=?',row.id)]);await audit(env,user,'child-deleted',row.id);return json({ok:true});}
+  if(parts[2]==='login'&&method==='POST'){parentOnly(user);const input=await body(request),login=normEmail(input.login||row.login);if(!validChildLogin(login))fail(400,'Gebruikersnaam: 3–30 tekens, kleine letters, cijfers, punt, streepje of liggend streepje.');if(typeof input.password!=='string'||input.password.length<8||input.password.length>200)fail(400,'Kies voor je kind een wachtwoord van minimaal 8 tekens.');const taken=await q(env,'SELECT id FROM users WHERE login=?',login).first();if(taken&&taken.id!==row.id)fail(409,'Deze gebruikersnaam is al bezet. Kies een andere.');await q(env,'UPDATE users SET login=?,pw_hash=? WHERE id=?',login,await hashSecret(input.password),row.id).run();await q(env,'DELETE FROM sessions WHERE user_id=?',row.id).run();await audit(env,user,'child-login-set',row.id);return json({login});}
+ }
+ if(path==='/api/password'&&method==='POST'){const input=await body(request),row=await q(env,'SELECT pw_hash FROM users WHERE id=?',user.id).first(),min=user.role==='parent'?10:8;if(!(await verifySecret(String(input.current||''),row.pw_hash)))fail(401,'Je huidige wachtwoord klopt niet.');if(typeof input.password!=='string'||input.password.length<min)fail(400,`Kies een nieuw wachtwoord van minimaal ${min} tekens.`);await q(env,'UPDATE users SET pw_hash=? WHERE id=?',await hashSecret(input.password),user.id).run();await q(env,'DELETE FROM sessions WHERE user_id=? AND token_hash<>?',user.id,session.hash).run();return json({ok:true});}
+ if(path==='/api/family/consent'&&method==='POST'){parentOnly(user);const on=(await body(request)).consent===true;await q(env,'UPDATE families SET ai_consent_at=? WHERE id=?',on?Date.now():null,user.family).run();await audit(env,user,'ai-consent',on?'on':'off');return json({aiConsent:on});}
+ if(path==='/api/family/name'&&method==='POST'){parentOnly(user);const name=String((await body(request)).name||'').trim().slice(0,60);if(!name)fail(400,'Vul een gezinsnaam in.');await q(env,'UPDATE families SET name=? WHERE id=?',name,user.family).run();return json({ok:true});}
+ if(path==='/api/export'&&method==='GET')return json(await exportFamily(env,user));
+ if(path==='/api/import'&&method==='POST')return json(await importFamily(env,user,await body(request,20000000)));
+ if(path==='/api/family/delete'&&method==='POST')return deleteFamily(env,request,user,await body(request));
+ fail(404,'Niet gevonden.');
+}
+export async function handleApi(request,env){
+ try{return await route(request,env);}
+ catch(e){if(e instanceof HttpError)return json({error:e.message},e.status);console.error(e);return json({error:'Er ging iets mis op de server. Je gegevens zijn niet gewijzigd; probeer het opnieuw.'},500);}
+}

@@ -1,0 +1,48 @@
+name: Leerstap
+
+on:
+  push:
+    paths: ["leerstap/**", ".github/workflows/leerstap.yml"]
+  pull_request:
+    paths: ["leerstap/**", ".github/workflows/leerstap.yml"]
+
+defaults:
+  run:
+    working-directory: leerstap
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: leerstap/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - name: Browsertest (volledige route ouder en kind)
+        run: npm run test:e2e
+        env:
+          CHROMIUM_PATH: /usr/bin/google-chrome
+
+  # Publiceert naar Cloudflare na een merge naar main, zodra de repositoryvariabele
+  # LEERSTAP_DEPLOY op "true" staat en het secret CLOUDFLARE_API_TOKEN bestaat (zie leerstap/UITROL.md).
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.LEERSTAP_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    concurrency: leerstap-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: leerstap/package-lock.json
+      - run: npm ci
+      - run: npm run deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
