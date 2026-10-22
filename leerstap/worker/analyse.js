@@ -53,6 +53,15 @@ export async function gradePaper(env,{questions,images,methods,level}){
  return {result:{readable:data.readable,overall:String(data.overall).slice(0,1500),answers:questions.map((q,i)=>{const a=byNumber.get(i+1);if(!a)return {answerSeen:'',points:0,confidence:'laag',feedback:'Dit antwoord is niet gevonden op de foto’s.',methodMatch:'niet te zien',methodNote:''};
   return {answerSeen:String(a.answerSeen).slice(0,500),points:Math.max(0,Math.min(q.points,Math.round(Number(a.points)*2)/2||0)),confidence:data.readable?a.confidence:'laag',feedback:String(a.feedback).slice(0,1500),methodMatch:a.methodMatch,methodNote:String(a.methodNote||'').slice(0,1000)};})},usage};
 }
+// Reads the text from photos of book pages, word for word. The pupil checks it before anything is made from it.
+export async function transcribe(env,{pages}){
+ const schema=obj({pages:arr(obj({page:num,text:str,unreadable:{type:'boolean'}}))});
+ const instructions=`Schrijf de tekst op de foto’s van een Nederlands lesboek letterlijk over. ${DATA_ONLY} Volg de leesvolgorde, met kopjes, paragraafnummers, opsommingen en opgavennummers. Formules in gewone notatie (√, ², ×, /, haakjes). Tabellen als regels met | tussen de kolommen. Een afbeelding, grafiek of kaart beschrijf je kort tussen [Afbeelding: ...], alleen wat er zichtbaar is. Wat je niet kunt lezen: [onleesbaar]. Verzin niets, vat niets samen en verbeter niets, ook geen spelfouten. Geef per foto het paginanummer zoals opgegeven.`;
+ const content=[];for(const p of pages)content.push({type:'input_text',text:`Foto van pagina ${p.page}:`},{type:'input_image',image_url:p.image,detail:'high'});
+ const {data,usage}=await callModel(env,{instructions,content,schema,name:'uitlezen',maxTokens:12000});
+ const byPage=new Map(data.pages.map(x=>[x.page,x]));
+ return {result:{pages:pages.map(p=>({page:p.page,text:String(byPage.get(p.page)?.text||'').slice(0,30000),unreadable:!!byPage.get(p.page)?.unreadable||!byPage.get(p.page)}))},usage};
+}
 // Reads a word list from the pupil's own book pages. Every pair must be found literally in the source; anything else is dropped.
 const norm=t=>String(t).toLowerCase().normalize('NFC').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();
 export async function wordsFromSource(env,{pages}){
@@ -78,7 +87,8 @@ export async function analysePages(pages,{subject,level},env){
  if(!pages.length||pages.length>30)throw new HttpError(400,'Kies 1–30 pagina’s per analyse.');
  if(!pages.every(validPage))throw new HttpError(400,'Ongeldige bronpagina.');
  const content=[{type:'input_text',text:JSON.stringify({subject:String(subject).slice(0,80),level:String(level).slice(0,80),pages:pages.map(({id,page,text})=>({id,page,text}))})}];
- for(const p of pages.filter(p=>p.image))content.push({type:'input_text',text:`Afbeelding van bron ${p.id}, pagina ${p.page}`},{type:'input_image',image_url:p.image,detail:'high'});
+ // A page whose text was read out and checked is sent as text only, so every citation can be verified against it.
+ for(const p of pages.filter(p=>p.image&&p.text.trim().length<60))content.push({type:'input_text',text:`Afbeelding van bron ${p.id}, pagina ${p.page}`},{type:'input_image',image_url:p.image,detail:'high'});
  let response;
  try{response=await fetch((env.OPENAI_BASE_URL||'https://api.openai.com/v1')+'/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(110000),body:JSON.stringify({model:env.OPENAI_MODEL||'gpt-4.1-mini',store:false,max_output_tokens:10000,instructions:INSTRUCTIONS,input:[{role:'user',content}],text:{format:{type:'json_schema',name:'leerstof',strict:true,schema}}})});}
  catch(e){throw new HttpError(504,e.name==='TimeoutError'?'De analyse duurde te lang; probeer minder pagina’s.':'De AI-dienst is niet bereikbaar. Probeer het later opnieuw.');}

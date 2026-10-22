@@ -1,5 +1,13 @@
 # Wijzigingen
 
+## 0.8.0 — 22 oktober 2026
+
+- **Foto’s van het boek worden tekst.** Bij een hoofdstuk met foto’s staat eerst *Tekst uitlezen en controleren*. De AI schrijft de tekst letterlijk over (met paragraafnummers, formules, tabellen; plaatjes als [Afbeelding: …], onleesbaar als [onleesbaar]). Je ziet foto en tekst naast elkaar, verbetert wat niet klopt en klikt *Tekst klopt*.
+- **Alleen uit de gecontroleerde tekst.** Pas daarna kan de samenvatting worden gemaakt. De analyse krijgt dan alleen de tekst, zodat elk citaat letterlijk wordt gecontroleerd; ook woordjes, nakijken en *leg het uit* gebruiken die tekst.
+- **Foto’s verwijderen:** na het controleren vraagt Leerstap: *Let op: de tekst is opgeslagen. Wil je de foto’s verwijderen?* Ja: de foto wordt overal gewist en vervangen door een tekstbestand (veel kleiner). Nee: de foto blijft, en verwijderen kan later met één klik bij het hoofdstuk.
+- Elke bladzijde laat zien waar hij staat: *Foto · tekst nog uitlezen*, *Tekst nog controleren*, *Tekst gecontroleerd* of *Alleen tekst*.
+- Uitlezen telt als één AI-controle per bestand.
+
 ## 0.7.1 — 22 oktober 2026
 
 - **Uploaden in vaste stappen:** eerst vak en hoofdstuk kiezen (verplicht, niets vooraf ingevuld), dan bladzijden uploaden, dan laten analyseren. Zonder vak en hoofdstuk wordt er niets geüpload.

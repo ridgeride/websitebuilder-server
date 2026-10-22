@@ -1,8 +1,8 @@
 import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSession,validPages,validProfile,validWordlist,validPlan,validPaper} from '../src/core.js';
-import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,isImage,HttpError} from './analyse.js';
+import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.7.1';
+export const APP_VERSION='0.8.0';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -103,12 +103,35 @@ async function uploadDocument(env,user,input){
  if(typeof data!=='string'||data.length>14500000||!/^[A-Za-z0-9+/=]*$/.test(data))fail(400,'Bestand ontbreekt of is groter dan 10 MB.');
  if(!validPages(pages)||!pages.length||pages.length>30)fail(400,'Ongeldige bronpagina’s.');
  let id=isId(meta.id)&&!(await getItem(env,user.family,'document',meta.id))?meta.id:uid();
- const doc={...pick(meta,DOCUMENT_META),id,name:String(meta.name||'Bron').slice(0,150),type:String(meta.type||'application/octet-stream').slice(0,100),warnings:Array.isArray(meta.warnings)?meta.warnings.filter(w=>typeof w==='string').slice(0,40):[],pageCount:pages.length,created:Number(meta.created)||Date.now(),uploadedBy:user.id};
+ const doc={...pick(meta,DOCUMENT_META),id,name:String(meta.name||'Bron').slice(0,150),type:String(meta.type||'application/octet-stream').slice(0,100),warnings:Array.isArray(meta.warnings)?meta.warnings.filter(w=>typeof w==='string').slice(0,40):[],pageCount:pages.length,hasImages:pages.some(p=>p.image&&p.text.trim().length<60),created:Number(meta.created)||Date.now(),uploadedBy:user.id};
  delete doc.deletedAt;if(!validDocumentMeta(doc))fail(400,'Ongeldige broninformatie.');
  const pagesWithId=pages.map(p=>({...p,id}));
  await env.FILES.put(filesPrefix(user.family,id)+'pages.json',JSON.stringify(pagesWithId),{httpMetadata:{contentType:'application/json'}});
  await env.FILES.put(filesPrefix(user.family,id)+'original',Uint8Array.from(atob(data),c=>c.charCodeAt(0)),{httpMetadata:{contentType:doc.type}});
  return {document:doc,rev:await putRow(env,user.family,'document',id,null,doc,1)};
+}
+// Reading out photos as text: the text is stored with the page, checked by the family, and then the photos may be removed.
+async function savePages(env,user,id,pages){await env.FILES.put(filesPrefix(user.family,id)+'pages.json',JSON.stringify(pages),{httpMetadata:{contentType:'application/json'}});}
+async function patchDocument(env,user,id,patch){const d=await getItem(env,user.family,'document',id);const data={...d.data,...patch};await putRow(env,user.family,'document',id,null,data,d.rev+1);return {document:data,rev:d.rev+1};}
+async function transcribeDocument(env,user,id){
+ const pages=await documentPages(env,user,id),photos=pages.filter(p=>p.image);if(!photos.length)fail(400,'Deze bron heeft geen foto’s om uit te lezen.');
+ const result=await aiCheck(env,user,()=>transcribe(env,{pages:photos}));
+ for(const t of result.pages){const p=pages.find(x=>x.page===t.page);if(p&&t.text.trim())p.text=t.text;}
+ await savePages(env,user,id,pages);return {pages:pages.map(({page,text,image})=>({page,text,image})),unreadable:result.pages.filter(p=>p.unreadable).map(p=>p.page),...await patchDocument(env,user,id,{transcribed:Date.now(),verified:null})};
+}
+async function saveText(env,user,id,input){
+ const pages=await documentPages(env,user,id),edits=input.pages;if(!Array.isArray(edits)||!edits.length)fail(400,'Geen tekst ontvangen.');
+ for(const e of edits){const p=pages.find(x=>x.page===e.page);if(!p||typeof e.text!=='string')fail(400,'Onbekende bladzijde.');if(e.text.length>30000)fail(400,'De tekst van één bladzijde mag maximaal 30.000 tekens zijn.');p.text=e.text;}
+ await savePages(env,user,id,pages);await audit(env,user,'text-verified',id);return patchDocument(env,user,id,{verified:Date.now()});
+}
+async function dropImages(env,user,id){
+ const d=await getItem(env,user.family,'document',id);if(!d)fail(404,'Bron niet gevonden.');if(!d.data.verified)fail(400,'Controleer eerst de tekst. Pas daarna kunnen de foto’s weg.');
+ const pages=(await documentPages(env,user,id)).map(({image,...p})=>p);
+ if(pages.some(p=>!p.text.trim()))fail(400,'Niet elke bladzijde heeft tekst. Bewaar de foto’s of vul de tekst eerst aan.');
+ await savePages(env,user,id,pages);
+ // The original photo is replaced by the checked text, so a download gives the text.
+ await env.FILES.put(filesPrefix(user.family,id)+'original',pages.map(p=>`--- Bladzijde ${p.page} ---\n${p.text}`).join('\n\n'),{httpMetadata:{contentType:'text/plain; charset=utf-8'}});
+ await audit(env,user,'images-removed',id);return patchDocument(env,user,id,{imagesRemoved:Date.now(),type:'text/plain',name:d.data.name.replace(/\.(jpe?g|png|webp|heic|pdf)$/i,'')+'.txt'});
 }
 async function documentPages(env,user,id){if(!(await getItem(env,user.family,'document',id)))fail(404,'Bron niet gevonden.');const obj=await env.FILES.get(filesPrefix(user.family,id)+'pages.json');if(!obj)fail(404,'Bronpagina’s niet gevonden.');return JSON.parse(await obj.text());}
 
@@ -363,6 +386,11 @@ async function route(request,env){
  if(parts[0]==='documents'&&parts.length===3&&method==='GET'){
   if(parts[2]==='pages')return json({pages:await documentPages(env,user,parts[1])});
   if(parts[2]==='original'){const d=await getItem(env,user.family,'document',parts[1]),obj=d&&await env.FILES.get(filesPrefix(user.family,parts[1])+'original');if(!obj)fail(404,'Bron niet gevonden.');return new Response(obj.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(d.data.name)}`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});}
+ }
+ if(parts[0]==='documents'&&parts.length===3&&method==='POST'){
+  if(parts[2]==='transcribe')return json(await transcribeDocument(env,user,parts[1]));
+  if(parts[2]==='text')return json(await saveText(env,user,parts[1],await body(request,400000)));
+  if(parts[2]==='drop-images')return json(await dropImages(env,user,parts[1]));
  }
  if(path==='/api/analyse'&&method==='POST')return json(await analyse(env,user,await body(request)));
  if(path==='/api/check-work'&&method==='POST')return json(await checkWorkRoute(env,user,await body(request,9000000)));

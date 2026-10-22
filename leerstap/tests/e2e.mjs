@@ -20,6 +20,7 @@ const ai=http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req
  if(name==='nakijken')return reply({points:3,confidence:'middel',readable:true,feedback:'Je rekent beide kanten goed uit. Schrijf de conclusie nog iets duidelijker op.',methodMatch:'zelfde methode',methodNote:'',steps:[{text:'√25 = 5',ok:true},{text:'3 + 4 = 7',ok:true}]});
  if(name==='woordjes'){const pages=JSON.parse(body).input[0].content.filter(c=>c.type==='input_text').map(c=>c.text).join('\n');assert.match(pages,/le chat/);return reply({langA:'Nederlands',langB:'Frans',pairs:[{a:'de kat',b:'le chat',page:1},{a:'de hond',b:'le chien',page:1},{a:'het huis',b:'la maison',page:1},{a:'de muis',b:'la souris',page:1}],warnings:[]});}
  if(name==='proefwerk'){const qs=JSON.parse(JSON.parse(body).input[0].content[0].text).vragen;return reply({readable:true,overall:'Wortels uitrekenen gaat goed. Let op bij het combineren van wortels.',answers:qs.map(q=>({number:q.nummer,answerSeen:q.nummer<=2?q.modelantwoord:'1',points:q.nummer<=2?q.maximumPunten:0,confidence:'hoog',feedback:q.nummer<=2?'Goed.':'Dit klopt niet. Reken eerst elke wortel apart uit.',methodMatch:'zelfde methode',methodNote:''}))});}
+ if(name==='uitlezen')return reply({pages:[{page:1,text:'§1.2 Klimaat\nHet klimaat is het gemiddelde weer over een periode van dertig jaar in een gebied.\n[Afbeelding: klimaatgrafiek van Utrecht]',unreadable:false}]});
  if(name==='uitleg')return reply({verdict:'bijna',good:['Je noemt het kwadraat.'],missing:['De uitkomst is nooit negatief.'],beyondBook:[],tip:'Noem ook dat een wortel niet-negatief is.'});
  const input=JSON.parse(JSON.parse(body).input[0].content[0].text),page=input.pages[0],cite={source:page.id,page:page.page,quote:page.text.slice(0,47)};
  const q=(prompt,answer,level)=>({prompt,kind:'numeric',answer,explanation:`Het antwoord is ${answer}.`,hint:'Welk getal keer zichzelf geeft het getal onder de wortel?',goal:['Wortels berekenen','Optellen met wortels','Vermenigvuldigen met wortels'][level-1],rubric:'2 punten voor de juiste uitkomst.',points:2,level,chapter:level===1?0:1,cite});
@@ -73,6 +74,19 @@ try{
   await parent.click('[data-action="nav"][data-route="library"]');await parent.click('.card.map:has-text("H3 Wortels") summary:has-text("Vak of hoofdstuk wijzigen")');
   await parent.fill('.card.map:has-text("H3 Wortels") input[id^="move-chapter"]','H3 Wortels en kwadraten');await parent.click('.card.map:has-text("H3 Wortels") [data-action="map-move"]');
   await parent.waitForSelector('.card.map h3:has-text("H3 Wortels en kwadraten")');await shot(parent,'05b-hoofdstukken');
+ });
+ await step('Foto van het boek: tekst uitlezen, controleren en verbeteren, foto’s verwijderen, dan analyseren',async()=>{
+  const PHOTO=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
+  await parent.selectOption('#up-subject','Aardrijkskunde');await parent.fill('#up-chapter','H1 Klimaat');await parent.setInputFiles('#files',{name:'blz-12.png',mimeType:'image/png',buffer:PHOTO});
+  const map='.card.map:has-text("H1 Klimaat")';await parent.waitForSelector(`${map} :text("foto: eerst de tekst uitlezen")`);assert.equal(await parent.$(`${map} [data-action="analyse"]`),null,'no analysis straight from a photo');
+  await parent.click(`${map} [data-action="map-read"]`);await parent.waitForSelector('dialog.review textarea');assert.match(await parent.inputValue('dialog.review textarea'),/dertig jaar/);
+  await parent.fill('dialog.review textarea','§1.2 Klimaat\nHet klimaat is het gemiddelde weer over een periode van 30 jaar in een gebied.\n[Afbeelding: klimaatgrafiek van Utrecht]');await shot(parent,'05c-tekst-controleren');
+  await click(parent,'review-save');await parent.waitForSelector('dialog:has-text("Let op: de tekst is opgeslagen")');await shot(parent,'05d-fotos-verwijderen');
+  await parent.click('dialog [data-action="drop-photos"]');await parent.waitForSelector('#toast:has-text("De foto is verwijderd")');
+  await parent.click(`${map} summary:has-text("Bekijk bladzijden")`);await parent.waitForSelector(`${map} .pill:has-text("Alleen tekst")`);await parent.waitForSelector(`${map} :text("blz-12.txt")`);
+  const pages=await parent.evaluate(async()=>{const s=await (await fetch('/api/state')).json(),d=s.documents.find(x=>x.name==='blz-12.txt');return (await (await fetch(`/api/documents/${d.id}/pages`)).json()).pages;});
+  assert.equal(pages[0].image,undefined);assert.match(pages[0].text,/30 jaar/,'the corrected text is what is stored');
+  await parent.click(`${map} [data-action="analyse"]`);await parent.waitForSelector('h1:has-text("Wortels uit mijn boek")');
  });
  await step('Kind krijgt een eigen login',async()=>{
   await parent.click('[data-action="nav"][data-route="settings"]');

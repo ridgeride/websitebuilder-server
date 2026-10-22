@@ -356,6 +356,27 @@ test('Papieren proefwerk: stored per child, graded from photos question by quest
  }finally{globalThis.fetch=old;}
 });
 
+test('Photos of the book: read out as text, checked by the family, then the photos can be removed and only text stays',async()=>{
+ const env=localEnv({OPENAI_API_KEY:'test'});const {b}=await family(env,'p@x.nl');await b.post('/api/family/consent',{consent:true});
+ const old=globalThis.fetch;let sent;globalThis.fetch=async(url,o)=>{sent=JSON.parse(o.body);return Response.json({status:'completed',usage:{input_tokens:900,output_tokens:300},output:[{content:[{type:'output_text',text:JSON.stringify({pages:[{page:1,text:'§3.1 Wortels\nEen vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal geeft.',unreadable:false}]})}]}]});};
+ try{
+  const img='data:image/jpeg;base64,'+Buffer.from('jpegdata').toString('base64');
+  const up=await b.post('/api/documents',{meta:{name:'blz-42.jpg',type:'image/jpeg',warnings:[],subject:'Wiskunde',chapter:'H3'},pages:[{id:'x',page:1,text:'',image:img}],data:Buffer.from('jpegdata').toString('base64')});
+  const id=up.body.document.id;assert.equal(up.body.document.hasImages,true);
+  assert.equal((await b.post(`/api/documents/${id}/drop-images`)).status,400,'not before the text is checked');
+  const t=await b.post(`/api/documents/${id}/transcribe`);assert.equal(t.status,200,JSON.stringify(t.body));assert.match(t.body.pages[0].text,/§3.1 Wortels/);assert.ok(t.body.document.transcribed);assert.equal(t.body.document.verified,null);
+  assert.match(sent.instructions,/letterlijk over/);assert.match(sent.instructions,/Verzin niets/);assert.equal(sent.input[0].content[1].type,'input_image');
+  assert.equal((await b.post(`/api/documents/${id}/text`,{pages:[{page:9,text:'x'}]})).status,400);
+  const v=await b.post(`/api/documents/${id}/text`,{pages:[{page:1,text:'§3.1 Wortels\nEen vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal onder het wortelteken geeft.'}]});assert.equal(v.status,200);assert.ok(v.body.document.verified);
+  const other=await family(env,'q@x.nl');assert.equal((await other.b.post(`/api/documents/${id}/drop-images`)).status,404,'another family cannot touch it');
+  const dr=await b.post(`/api/documents/${id}/drop-images`);assert.equal(dr.status,200);assert.ok(dr.body.document.imagesRemoved);assert.equal(dr.body.document.name,'blz-42.txt');assert.equal(dr.body.document.type,'text/plain');
+  const pages=(await b.get(`/api/documents/${id}/pages`)).body.pages;assert.equal(pages[0].image,undefined,'the photo is gone');assert.match(pages[0].text,/onder het wortelteken/);
+  const orig=Buffer.from((await b.get(`/api/documents/${id}/original`)).body).toString();assert.match(orig,/--- Bladzijde 1 ---/);assert.ok(!orig.includes('jpegdata'));
+  assert.equal((await b.post(`/api/documents/${id}/transcribe`)).status,400,'nothing left to read');
+  assert.equal((await b.get('/api/state')).body.usage.checks,1);
+ }finally{globalThis.fetch=old;}
+});
+
 test('Export, import of an old device backup, and deleting the whole family',async()=>{
  const env=localEnv();const {b,state}=await family(env,'p@x.nl');
  const id=(await b.post('/api/documents',textDoc('Bron voor de export.'))).body.document.id;
