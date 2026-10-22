@@ -115,6 +115,18 @@ try{
   await shot(parent,'12-beheer-telefoon');await parent.setViewportSize({width:1280,height:900});
   await invited.reload();await invited.waitForSelector('#login-form');
  });
+ await step('Toegang aanvragen op de inlogpagina, accepteren in Beheer en daarna een account maken',async()=>{
+  const asker=await device({width:390,height:844});await asker.goto(base);
+  await asker.click('[data-action="auth-view"][data-view="request"]');await asker.fill('#request-name','Anna de Vries');await asker.fill('#request-email','anna@voorbeeld.nl');
+  await asker.fill('#request-message','Dochter in 1 vwo');await shot(asker,'13-toegang-aanvragen');await asker.click('#request-form button');await asker.waitForSelector('h2:has-text("Bedankt")');
+  await click(parent,'admin-refresh');await parent.waitForSelector('[data-route="admin"]:has-text("Beheer · 1")');await parent.waitForSelector('.list-item:has-text("Dochter in 1 vwo")');
+  await shot(parent,'14-aanvraag-in-beheer');
+  await parent.click('[data-action="admin-accept"][data-email="anna@voorbeeld.nl"]');await parent.waitForSelector('.notice:has-text("alleen voor anna@voorbeeld.nl") a.mail');
+  assert.match(await parent.getAttribute('.notice a.mail','href'),/^mailto:anna%40voorbeeld\.nl\?subject=/);
+  await click(asker,'auth-view','[data-view="login"]');await asker.click('[data-action="auth-view"][data-view="signup"]');
+  await asker.fill('#email','anna@voorbeeld.nl');await asker.fill('#new-password','anna-haar-wachtwoord');await asker.fill('#confirm','anna-haar-wachtwoord');
+  await asker.fill('#child-name','Lot');await asker.check('#accept');await asker.click('#signup-form button:not(.link)');await asker.waitForSelector('#recovery-code');
+ });
  await step('App is installeerbaar (manifest en service worker)',async()=>{
   const r=await parent.evaluate(async()=>({manifest:(await (await fetch('/manifest.webmanifest')).json()).display,sw:!!(await navigator.serviceWorker.getRegistration())}));
   assert.deepEqual(r,{manifest:'standalone',sw:true});

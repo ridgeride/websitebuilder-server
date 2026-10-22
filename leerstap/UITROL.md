@@ -102,6 +102,8 @@ Na elke wijziging in `main` publiceert GitHub dan zelf, maar alleen als alle tes
 Log in met het ouderaccount waarvan het e-mailadres in `wrangler.toml` bij `ADMIN_EMAILS` staat. In het menu verschijnt dan **Beheer**:
 
 - **Gezin uitnodigen:** vul in voor wie de uitnodiging is en klik op *Uitnodiging maken*. Kopieer de link of het bericht en stuur het via WhatsApp of mail. Elke code werkt één keer. Een uitnodiging die nog niet gebruikt is, kun je intrekken.
+- **Aanvragen:** wie geen uitnodiging heeft, kan op de inlogpagina toegang aanvragen. In het menu staat dan *Beheer · 1*. *Accepteren* maakt een uitnodiging voor dat e-mailadres; laat het de aanvrager weten met *Mailen* of een bericht. Daarna maakt die bij *Account maken* een account met hetzelfde e-mailadres, zonder code. *Afwijzen* verwijdert de aanvraag.
+- **Uitnodiging koppelen aan een e-mailadres:** vul bij *Gezin uitnodigen* het e-mailadres van de ouder in. De code werkt dan alleen voor dat adres.
 - **Gezinnen:** je ziet per gezin het e-mailadres van de ouder, aantallen en het AI-gebruik, nooit leerstof of antwoorden. *Pauzeren* meldt het gezin overal af en blokkeert inloggen; *Hervatten* zet het weer aan. *Nieuwe herstelcode* helpt een ouder die de code kwijt is: geef de nieuwe code persoonlijk door. *Gezin verwijderen* wist alles van dat gezin definitief.
 
 Met `INVITE_ONLY = "true"` kan niemand zonder uitnodiging een account maken. Staat er ook een algemene `INVITE_CODE`, dan werkt die naast de persoonlijke uitnodigingen. Wil je alleen nog persoonlijke uitnodigingen, verwijder die dan: `npx wrangler secret delete INVITE_CODE`. Na de proef zet je `INVITE_ONLY` op `"false"` om iedereen toe te laten.

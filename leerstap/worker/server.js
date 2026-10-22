@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.4.0';
+export const APP_VERSION='0.5.0';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -55,7 +55,7 @@ async function state(env,user){
  for(const r of rows){const data=JSON.parse(r.data);out.revs[r.kind+':'+r.id]=r.rev;if(r.kind==='draft')out.drafts[r.id]=data;else out[r.kind+'s'].push(data);}
  out.attempts.sort((a,b)=>a.created-b.created);out.modules.sort((a,b)=>(a.created||0)-(b.created||0));
  const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first();
- return {...out,me:{id:user.id,role:user.role,name:user.name,login:user.login,familyName:user.familyName,aiConsent:user.aiConsent,admin:isAdmin(env,user)},usage:{analyses:used?.analyses||0,limit:limit(env,'AI_MONTHLY_LIMIT',30)}};
+ return {...out,me:{id:user.id,role:user.role,name:user.name,login:user.login,familyName:user.familyName,aiConsent:user.aiConsent,admin:isAdmin(env,user),requests:isAdmin(env,user)?(await q(env,'SELECT count(*) AS n FROM access_requests').first()).n:0},usage:{analyses:used?.analyses||0,limit:limit(env,'AI_MONTHLY_LIMIT',30)}};
 }
 
 async function putItem(env,user,kind,id,input){
@@ -121,10 +121,14 @@ async function analyse(env,user,input){
 
 async function signup(env,request,input){
  const ip=clientIp(request);if(await throttled(env,'signup:'+ip,10,3600000))fail(429,'Te veel nieuwe accounts vanaf dit netwerk. Probeer het over een uur opnieuw.');
- const invite=String(input.invite||'').trim(),personal=invite?await q(env,'SELECT code FROM invites WHERE code=? AND used_at IS NULL',invite.toUpperCase()).first():null;
- if(inviteRequired(env)&&!personal&&!(env.INVITE_CODE&&invite===env.INVITE_CODE)){await countFailure(env,'signup:'+ip,3600000);fail(403,'De uitnodigingscode klopt niet of is al gebruikt. Leerstap is nog in een besloten proef.');}
+ const email=normEmail(input.email),invite=String(input.invite||'').trim();
+ // A personal invitation is found by its code, or by the e-mail address of an accepted access request. One bound to an address only works for that address.
+ let personal=invite?await q(env,'SELECT code,email FROM invites WHERE code=? AND used_at IS NULL',invite.toUpperCase()).first():null;
+ if(!personal&&email)personal=await q(env,'SELECT code,email FROM invites WHERE email=? AND used_at IS NULL ORDER BY created LIMIT 1',email).first();
+ if(personal?.email&&personal.email!==email)personal=null;
+ if(inviteRequired(env)&&!personal&&!(env.INVITE_CODE&&invite===env.INVITE_CODE)){await countFailure(env,'signup:'+ip,3600000);fail(403,'De uitnodigingscode klopt niet of is al gebruikt. Leerstap is nog in een besloten proef. Je kunt toegang aanvragen.');}
  if(input.accept!==true)fail(400,'Ga akkoord met de voorwaarden en het privacybeleid.');
- const email=normEmail(input.email);if(!validEmail(email))fail(400,'Vul een geldig e-mailadres in.');
+ if(!validEmail(email))fail(400,'Vul een geldig e-mailadres in.');
  if(typeof input.password!=='string'||input.password.length<10||input.password.length>200)fail(400,'Kies een wachtwoord van minimaal 10 tekens.');
  const child=profileIn({name:input.childName,schoolType:input.schoolType,year:input.year,subjects:input.subjects});
  if(await q(env,'SELECT 1 FROM users WHERE login=?',email).first())fail(409,'Er bestaat al een account met dit e-mailadres. Log in of herstel je wachtwoord.');
@@ -135,9 +139,24 @@ async function signup(env,request,input){
   q(env,"INSERT INTO users(id,family_id,role,login,name,pw_hash,recovery_hash,profile,created) VALUES(?,?,'parent',?,?,?,?,'{}',?)",parent,family,email,String(input.parentName||'Ouder').trim().slice(0,40)||'Ouder',await hashSecret(input.password),await hashSecret(code),now),
   q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",childId,family,child.name,JSON.stringify(child.profile),now+1),
   q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'module','demo',?,1,?)",family,JSON.stringify(demo),now),
-  ...personal?[q(env,'UPDATE invites SET used_at=?,family_id=? WHERE code=? AND used_at IS NULL',now,family,personal.code)]:[]]);
+  ...personal?[q(env,'UPDATE invites SET used_at=?,family_id=? WHERE code=? AND used_at IS NULL',now,family,personal.code)]:[],
+  q(env,'DELETE FROM access_requests WHERE email=?',email)]);
  await audit(env,{family,id:parent},'signup',personal?'uitnodiging '+personal.code:'');
  return json({recoveryCode:code},200,{'Set-Cookie':sessionCookie(await createSession(env,parent),request.url)});
+}
+// Anyone may ask for access while signup is invite-only. The answer is always the same, so it does not reveal who already has an account.
+async function requestAccess(env,request,input){
+ const ip=clientIp(request);if(!inviteRequired(env))fail(400,'Je kunt direct een account maken.');
+ if(await throttled(env,'request:'+ip,5,3600000))fail(429,'Te veel aanvragen vanaf dit netwerk. Probeer het over een uur opnieuw.');
+ const email=normEmail(input.email),name=String(input.name||'').trim().slice(0,60),message=String(input.message||'').trim().slice(0,500);
+ if(!name)fail(400,'Vul je naam in.');if(!validEmail(email))fail(400,'Vul een geldig e-mailadres in.');
+ await countFailure(env,'request:'+ip,3600000);
+ // The hidden field is only filled in by bots; they get the normal answer without anything being stored.
+ if(!input.website&&!(await q(env,'SELECT 1 FROM users WHERE login=?',email).first())){
+  const open=await q(env,'SELECT count(*) AS n FROM access_requests').first();
+  if(open.n<500)await q(env,'INSERT INTO access_requests(email,name,message,created) VALUES(?,?,?,?) ON CONFLICT(email) DO UPDATE SET name=excluded.name,message=excluded.message',email,name,message,Date.now()).run();
+ }
+ return {ok:true};
 }
 async function login(env,request,input){
  const name=normEmail(input.login),ip=clientIp(request);
@@ -198,17 +217,29 @@ async function adminOverview(env){
   (SELECT analyses FROM usage WHERE family_id=f.id AND month=?) AS analyses,
   (SELECT code FROM invites WHERE family_id=f.id) AS invite
   FROM families f ORDER BY f.created DESC`,month()).all()).results.map(f=>({...f,aiConsent:!!f.aiConsent,analyses:f.analyses||0}));
- const invites=(await q(env,`SELECT i.code,i.note,i.created,i.used_at AS usedAt,i.family_id AS family,(SELECT login FROM users WHERE family_id=i.family_id AND role='parent' ORDER BY created LIMIT 1) AS email FROM invites i ORDER BY i.created DESC`).all()).results;
- return {families,invites,inviteRequired:inviteRequired(env),sharedCode:!!env.INVITE_CODE,limit:limit(env,'AI_MONTHLY_LIMIT',30)};
+ const invites=(await q(env,`SELECT i.code,i.note,i.email AS invited,i.created,i.used_at AS usedAt,i.family_id AS family,(SELECT login FROM users WHERE family_id=i.family_id AND role='parent' ORDER BY created LIMIT 1) AS email FROM invites i ORDER BY i.created DESC`).all()).results;
+ const requests=(await q(env,'SELECT email,name,message,created FROM access_requests ORDER BY created').all()).results;
+ return {families,invites,requests,inviteRequired:inviteRequired(env),sharedCode:!!env.INVITE_CODE,limit:limit(env,'AI_MONTHLY_LIMIT',30)};
 }
 async function adminRoute(env,request,user,parts,method){
  if(!isAdmin(env,user))fail(403,'Alleen de beheerder van Leerstap kan dit.');
  if(parts.length===1&&method==='GET')return adminOverview(env);
  if(parts[1]==='invites'&&parts.length===2&&method==='POST'){
-  const note=String((await body(request)).note||'').trim().slice(0,80),now=Date.now();
+  const input=await body(request),note=String(input.note||'').trim().slice(0,80),invited=normEmail(input.email)||null,now=Date.now();
+  if(invited&&!validEmail(invited))fail(400,'Vul een geldig e-mailadres in, of laat het leeg.');
   let code;for(let i=0;i<5&&!code;i++){const c=inviteCode();if(!(await q(env,'SELECT 1 FROM invites WHERE code=?',c).first()))code=c;}
-  await q(env,'INSERT INTO invites(code,note,created) VALUES(?,?,?)',code,note,now).run();await audit(env,user,'admin-invite',`${code} ${note}`);
-  return {invite:{code,note,created:now,usedAt:null,family:null,email:null}};
+  await q(env,'INSERT INTO invites(code,note,email,created) VALUES(?,?,?,?)',code,note,invited,now).run();await audit(env,user,'admin-invite',`${code} ${note}`);
+  return {invite:{code,note,invited,created:now,usedAt:null,family:null,email:null}};
+ }
+ if(parts[1]==='requests'&&parts.length===4&&parts[3]==='accept'&&method==='POST'){
+  const r=await q(env,'SELECT email,name FROM access_requests WHERE email=?',decodeURIComponent(parts[2])).first();if(!r)fail(404,'Deze aanvraag bestaat niet meer.');
+  const now=Date.now(),note=r.name.slice(0,80);let code;for(let i=0;i<5&&!code;i++){const c=inviteCode();if(!(await q(env,'SELECT 1 FROM invites WHERE code=?',c).first()))code=c;}
+  await env.DB.batch([q(env,'INSERT INTO invites(code,note,email,created) VALUES(?,?,?,?)',code,note,r.email,now),q(env,'DELETE FROM access_requests WHERE email=?',r.email)]);
+  await audit(env,user,'admin-request-accepted',`${code} ${r.email}`);return {invite:{code,note,invited:r.email,created:now,usedAt:null,family:null,email:null}};
+ }
+ if(parts[1]==='requests'&&parts.length===3&&method==='DELETE'){
+  const r=await q(env,'DELETE FROM access_requests WHERE email=?',decodeURIComponent(parts[2])).run();if(!r.meta.changes)fail(404,'Deze aanvraag bestaat niet meer.');
+  await audit(env,user,'admin-request-rejected','');return {ok:true};
  }
  if(parts[1]==='invites'&&parts.length===3&&method==='DELETE'){
   const r=await q(env,'DELETE FROM invites WHERE code=? AND used_at IS NULL',parts[2]).run();if(!r.meta.changes)fail(409,'Deze uitnodiging is al gebruikt of bestaat niet meer.');
@@ -230,6 +261,7 @@ async function route(request,env){
  if(!['GET','HEAD'].includes(method)&&request.headers.get('Origin')!==url.origin)fail(403,'Ongeldige herkomst.');
  if(path==='/api/status')return json({version:APP_VERSION,configured:!!env.OPENAI_API_KEY,model:env.OPENAI_MODEL||'gpt-4.1-mini',inviteRequired:inviteRequired(env)});
  if(path==='/api/signup'&&method==='POST')return signup(env,request,await body(request));
+ if(path==='/api/request-access'&&method==='POST')return json(await requestAccess(env,request,await body(request,10000)));
  if(path==='/api/login'&&method==='POST')return login(env,request,await body(request));
  if(path==='/api/recover'&&method==='POST')return recover(env,request,await body(request));
  const session=await readSession(env,request);

@@ -214,6 +214,42 @@ test('Beheer: personal invitations, pausing, a new recovery code and removing a 
  assert.equal((await browser(localEnv()).post('/api/signup',signupBody('open@x.nl',{invite:'XXXX-XXXX'}))).status,200);
 });
 
+test('Access requests and invitations bound to an e-mail address',async()=>{
+ const env=localEnv({INVITE_ONLY:'true',ADMIN_EMAILS:'beheer@x.nl'});
+ await env.DB.prepare("INSERT INTO invites(code,note,created) VALUES('START-0001','',0)").run();
+ const admin=browser(env);assert.equal((await admin.post('/api/signup',signupBody('beheer@x.nl',{invite:'START-0001'}))).status,200);
+ // Anyone can ask; a repeated request updates the open one; bots that fill the hidden field are ignored; existing accounts are not revealed.
+ const guest=browser(env);
+ assert.equal((await guest.post('/api/request-access',{name:'',email:'a@x.nl'})).status,400);
+ assert.equal((await guest.post('/api/request-access',{name:'Anna',email:'geen-adres'})).status,400);
+ assert.equal((await guest.post('/api/request-access',{name:'Anna',email:'Anna@X.nl',message:'Dochter in 1 vwo'})).status,200);
+ assert.equal((await guest.post('/api/request-access',{name:'Anna de Vries',email:'anna@x.nl',message:'Dochter in 1 vwo, vooral Frans'})).status,200);
+ assert.equal((await browser(env).post('/api/request-access',{name:'Bot',email:'bot@x.nl',website:'http://spam'})).status,200);
+ assert.equal((await browser(env).post('/api/request-access',{name:'Ik',email:'beheer@x.nl'})).status,200);
+ assert.equal((await admin.get('/api/state')).body.me.requests,1);
+ let o=(await admin.get('/api/admin')).body;assert.deepEqual(o.requests.map(r=>[r.email,r.name,r.message]),[['anna@x.nl','Anna de Vries','Dochter in 1 vwo, vooral Frans']]);
+ assert.equal((await guest.get('/api/admin')).status,401);
+ // Accepting turns the request into an invitation for that address only. Anna can sign up without typing the code; nobody else can use it.
+ const inv=(await admin.post('/api/admin/requests/'+encodeURIComponent('anna@x.nl')+'/accept',{})).body.invite;assert.equal(inv.invited,'anna@x.nl');
+ assert.equal((await admin.get('/api/admin')).body.requests.length,0);
+ assert.equal((await browser(env).post('/api/signup',signupBody('ander@x.nl',{invite:inv.code}))).status,403,'bound to Anna');
+ assert.equal((await browser(env).post('/api/signup',signupBody('anna@x.nl'))).status,200);
+ assert.equal((await admin.get('/api/admin')).body.invites.find(i=>i.code===inv.code).email,'anna@x.nl');
+ // Rejecting removes the request.
+ await guest.post('/api/request-access',{name:'Bert',email:'bert@x.nl'});
+ assert.equal((await admin.del('/api/admin/requests/bert@x.nl')).status,200);assert.equal((await admin.get('/api/admin')).body.requests.length,0);
+ assert.equal((await admin.del('/api/admin/requests/bert@x.nl')).status,404);
+ // An invitation made in Beheer can also be bound to an address.
+ assert.equal((await admin.post('/api/admin/invites',{note:'C',email:'geen-adres'})).status,400);
+ const c=(await admin.post('/api/admin/invites',{note:'C',email:'C@x.nl'})).body.invite;assert.equal(c.invited,'c@x.nl');
+ assert.equal((await browser(env).post('/api/signup',signupBody('d@x.nl',{invite:c.code}))).status,403);
+ assert.equal((await browser(env).post('/api/signup',signupBody('c@x.nl',{invite:c.code}))).status,200);
+ // Throttling: five requests per hour per network.
+ for(let i=0;i<5;i++)await browser(env).post('/api/request-access',{name:'N',email:`n${i}@x.nl`});
+ assert.equal((await browser(env).post('/api/request-access',{name:'N',email:'n9@x.nl'})).status,429);
+ assert.equal((await browser(localEnv()).post('/api/request-access',{name:'N',email:'n@x.nl'})).status,400,'not needed when signup is open');
+});
+
 test('Export, import of an old device backup, and deleting the whole family',async()=>{
  const env=localEnv();const {b,state}=await family(env,'p@x.nl');
  const id=(await b.post('/api/documents',textDoc('Bron voor de export.'))).body.document.id;

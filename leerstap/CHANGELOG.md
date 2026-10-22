@@ -1,5 +1,13 @@
 # Wijzigingen
 
+## 0.5.0 — 22 oktober 2026
+
+- **Toegang aanvragen:** op de inlogpagina staat een tabblad *Toegang aanvragen* (naam, e-mail, optioneel bericht). Aanvragen verschijnen in Beheer, met het aantal in het menu (*Beheer · 2*). *Accepteren* maakt een uitnodiging die alleen voor dat e-mailadres werkt, met een knop *Mailen* die je mailprogramma opent met het bericht klaar. *Afwijzen* verwijdert de aanvraag.
+- **Uitnodiging aan een e-mailadres koppelen:** optioneel bij *Gezin uitnodigen*. Komt de code ergens anders terecht, dan kan niemand anders hem gebruiken. Met een gekoppelde uitnodiging hoeft de ouder de code niet over te typen.
+- Aanvragen zijn begrensd (5 per uur per netwerk, maximaal 500 open) en bots worden met een verborgen veld tegengehouden. Het antwoord verraadt niet of een e-mailadres al een account heeft.
+- Privacyverklaring aangevuld met de gegevens van een aanvraag en hoe lang die bewaard blijven.
+- Migratie `0003_aanvragen.sql`.
+
 ## 0.4.0 — 22 oktober 2026
 
 Beheer voor de proefperiode.
