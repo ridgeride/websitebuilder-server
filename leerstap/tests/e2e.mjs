@@ -54,12 +54,25 @@ try{
  });
  await step('Leerstof uploaden, analyseren en vrijgeven',async()=>{
   await parent.click('[data-action="nav"][data-route="library"]');
-  await parent.setInputFiles('#files',{name:'wortels-h3.txt',mimeType:'text/plain',buffer:Buffer.from(TEXT)});
-  await parent.waitForSelector('.list-item:has-text("wortels-h3.txt")');await parent.waitForFunction(()=>document.querySelector('#save-status')?.textContent.includes('Alles opgeslagen'));
-  await parent.check('#consent');await click(parent,'analyse');
+  await parent.setInputFiles('#files',{name:'wortels-h3.txt',mimeType:'text/plain',buffer:Buffer.from(TEXT)});await parent.waitForSelector('#toast:has-text("Kies eerst het vak")');
+  await parent.selectOption('#up-subject','Wiskunde');await parent.fill('#up-chapter','H3 Wortels');await parent.setInputFiles('#files',{name:'wortels-h3.txt',mimeType:'text/plain',buffer:Buffer.from(TEXT)});
+  await parent.waitForSelector('.card.map:has-text("H3 Wortels") .pill:has-text("Nog niet geanalyseerd")');
+  await parent.waitForFunction(()=>document.querySelector('#save-status')?.textContent.includes('Alles opgeslagen'));
+  await shot(parent,'05a-leerstof-map');await parent.check('#consent');await click(parent,'analyse');
   await parent.waitForSelector('h1:has-text("Wortels uit mijn boek")');await shot(parent,'05-concept-controle');
   await click(parent,'approve');await parent.waitForSelector('#toast:has-text("vrijgegeven")');
   await parent.click('[data-action="tab"][data-tab="questions"]');await parent.waitForSelector('text=Bereken √49 + √121.');
+ });
+ await step('Later bladzijden toevoegen aan hetzelfde hoofdstuk, opnieuw analyseren zonder tweede versie, en verplaatsen',async()=>{
+  await parent.click('[data-action="nav"][data-route="library"]');
+  await parent.setInputFiles('.card.map:has-text("H3 Wortels") input.map-files',{name:'wortels-h3-blz2.txt',mimeType:'text/plain',buffer:Buffer.from(TEXT+' Ook de wortel van 144 is 12.')});
+  await parent.waitForSelector('.card.map:has-text("H3 Wortels") :text("2 bestanden")');await parent.waitForSelector('.card.map:has-text("H3 Wortels") .pill:has-text("Nieuwe bladzijden")');
+  parent.once('dialog',d=>d.accept());await parent.click('.card.map:has-text("H3 Wortels") [data-action="analyse"][data-replace]');await parent.waitForSelector('h1:has-text("Wortels uit mijn boek")');
+  assert.equal(await parent.evaluate(async()=>(await (await fetch('/api/state')).json()).modules.filter(m=>m.title==='Wortels uit mijn boek').length),1,'replaced, not duplicated');
+  await click(parent,'approve');await parent.waitForSelector('#toast:has-text("vrijgegeven")');
+  await parent.click('[data-action="nav"][data-route="library"]');await parent.click('.card.map:has-text("H3 Wortels") summary:has-text("Vak of hoofdstuk wijzigen")');
+  await parent.fill('.card.map:has-text("H3 Wortels") input[id^="move-chapter"]','H3 Wortels en kwadraten');await parent.click('.card.map:has-text("H3 Wortels") [data-action="map-move"]');
+  await parent.waitForSelector('.card.map h3:has-text("H3 Wortels en kwadraten")');await shot(parent,'05b-hoofdstukken');
  });
  await step('Kind krijgt een eigen login',async()=>{
   await parent.click('[data-action="nav"][data-route="settings"]');
@@ -149,8 +162,8 @@ try{
   await parent.waitForSelector('text=Alles beheerst!');await shot(parent,'16-drill-klaar');await click(parent,'finish');await parent.waitForSelector('.pill:has-text("Drill")');
  });
  await step('Woordjes alleen uit de eigen bron: verzonnen woorden worden geweigerd; overhoren met hulp bij bijna-goed',async()=>{
-  await parent.click('[data-action="nav"][data-route="library"]');await parent.setInputFiles('#files',{name:'frans-h2-woordjes.txt',mimeType:'text/plain',buffer:Buffer.from('Woordenlijst Frans H2\nde kat - le chat\nde hond - le chien\nhet huis - la maison')});
-  await parent.waitForSelector('.list-item:has-text("frans-h2-woordjes.txt")');await saved(parent);
+  await parent.click('[data-action="nav"][data-route="library"]');await parent.selectOption('#up-subject','Frans');await parent.fill('#up-chapter','H2 woordjes');await parent.setInputFiles('#files',{name:'frans-h2-woordjes.txt',mimeType:'text/plain',buffer:Buffer.from('Woordenlijst Frans H2\nde kat - le chat\nde hond - le chien\nhet huis - la maison')});
+  await parent.waitForSelector('.card.map:has-text("H2 woordjes")');await saved(parent);
   await parent.click('[data-action="nav"][data-route="words"]');await parent.waitForSelector('text=Nog geen woordenlijsten');
   await parent.check('input[name="wl-doc"]:near(:text("frans-h2-woordjes.txt"))');await click(parent,'words-source');
   await parent.waitForSelector('#toast:has-text("3 woordjes gevonden")');await parent.waitForSelector('#toast:has-text("niet letterlijk in de bron")');

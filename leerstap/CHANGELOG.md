@@ -1,5 +1,12 @@
 # Wijzigingen
 
+## 0.7.1 — 22 oktober 2026
+
+- **Uploaden in vaste stappen:** eerst vak en hoofdstuk kiezen (verplicht, niets vooraf ingevuld), dan bladzijden uploaden, dan laten analyseren. Zonder vak en hoofdstuk wordt er niets geüpload.
+- **Een map per vak en hoofdstuk** onder *Mijn hoofdstukken*, gegroepeerd per vak. Per map: bladzijden bekijken, **bladzijden toevoegen** (ook later), samenvatting laten maken, en **vak of hoofdstuk wijzigen** om uploads naar de juiste plek te verplaatsen.
+- **Opnieuw analyseren** als er bladzijden bij zijn gekomen: de bestaande leerstof wordt vervangen (zelfde naam en plek), eerdere resultaten blijven bewaard; een ouder geeft de nieuwe versie opnieuw vrij.
+- Foto’s van een telefoon worden bij het uploaden verkleind (± 2000 pixels, JPEG): even goed leesbaar, een fractie van de opslag.
+
 ## 0.7.0 — 22 oktober 2026
 
 - **Alles uit het eigen boek.** De analyse gebruikt uitsluitend de geüploade bronnen (geen eigen kennis, geen internet) en volgt de werkwijze, notatie en termen van het boek. Per paragraaf wordt de methode van het boek vastgelegd en getoond (*Zo pakt het boek het aan*).

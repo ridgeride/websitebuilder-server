@@ -1,4 +1,4 @@
-# Leerstap 0.7.0
+# Leerstap 0.7.1
 
 Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders. Upload je leerstof, laat AI er een samenvatting en oefenvragen van maken, en oefen tot je het snapt. Fouten komen terug, eerst met uitleg. Proefwerken kun je online maken of als PDF printen, met opgaven en antwoorden apart.
 
@@ -8,7 +8,7 @@ Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders.
 
 1. Een ouder maakt een **gezinsaccount** (e-mail + wachtwoord) en krijgt eenmalig een **herstelcode**.
 2. De ouder voegt kinderen toe (schooltype, leerjaar, vakken) en geeft ieder kind desgewenst een **eigen login** (gebruikersnaam + wachtwoord). Een kind ziet alleen de eigen voortgang.
-3. **Mijn leerstof:** upload PDF, DOCX, TXT/MD, JPG, PNG of WEBP, of plak tekst. Maximaal 10 MB per bestand en 30 pagina’s per analyse. Bronnen worden centraal en privé opgeslagen.
+3. **Mijn leerstof:** kies eerst het vak en het hoofdstuk, upload dan de bladzijden (PDF, DOCX, TXT/MD, JPG, PNG of WEBP, of geplakte tekst). Elk hoofdstuk is een map waar je later bladzijden aan toevoegt; opnieuw analyseren vervangt de leerstof in plaats van een tweede versie te maken. Maximaal 10 MB per bestand en 30 pagina’s per analyse. Bronnen worden centraal en privé opgeslagen.
 4. Met **toestemming van een ouder** maakt de AI samenvattingen, leerdoelen, begrippen en 9–15 vragen op drie niveaus. Elke vraag verwijst naar een letterlijk citaat uit de bron; verzonnen citaten worden geblokkeerd. Het resultaat is een concept tot een ouder het vrijgeeft.
 5. **Oefenen:** typ antwoorden zoals `√81`, `sqrt(81)`, `2*sqrt(3)` of `1/2`, met tussenstappen. Rekenantwoorden worden doorgerekend, niet letterlijk vergeleken. Fout = uitleg, daarna twee keer zelfstandig goed. Herhaling na 1 dag, oplopend tot 30 dagen.
 6. **Proefwerk:** zonder hints. Daarna punten, uitwerkingen en foutfocus. PDF-opgaven en PDF-antwoorden met puntenmodel apart.

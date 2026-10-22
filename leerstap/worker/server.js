@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.7.0';
+export const APP_VERSION='0.7.1';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -116,6 +116,8 @@ async function analyse(env,user,input){
  if(input.consent===true&&user.role==='parent'&&!user.aiConsent){await q(env,'UPDATE families SET ai_consent_at=? WHERE id=?',Date.now(),user.family).run();await audit(env,user,'ai-consent','on');user.aiConsent=true;}
  if(!user.aiConsent)fail(403,user.role==='parent'?'Geef eerst toestemming om leerstof naar de AI-dienst te sturen.':'Een ouder moet eerst toestemming geven voor AI-analyse (Gezin & instellingen).');
  const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>30||!ids.every(isId))fail(400,'Selecteer eerst een bron.');
+ // Re-analysing a chapter after adding pages replaces that module instead of making a second copy.
+ const old=input.replace?isId(input.replace)&&await getItem(env,user.family,'module',input.replace):null;if(input.replace&&(!old||old.data.demo))fail(404,'De leerstof die je wilt bijwerken bestaat niet meer.');
  const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first(),max=limit(env,'AI_MONTHLY_LIMIT',30);
  if((used?.analyses||0)>=max)fail(429,`Jullie maandlimiet van ${max} analyses is bereikt. Volgende maand kan het weer.`);
  const docs=[],pages=[];for(const id of ids){const d=await getItem(env,user.family,'document',id);if(!d||d.data.deletedAt)fail(404,'Een geselecteerde bron bestaat niet meer.');docs.push(d.data);pages.push(...await documentPages(env,user,id));}
@@ -123,10 +125,11 @@ async function analyse(env,user,input){
  let result;try{result=await analysePages(pages,{subject:input.subject,level:input.level},env);}catch(e){if(e.usage)await record(e.usage);throw e;}
  await record(result.usage);
  const meta=pick(input.meta||{},['schoolYear','period','chapter','method']);for(const k in meta)meta[k]=String(meta[k]).slice(0,150);
- const m={...result.module,...meta,id:uid(),subject:String(input.subject||'Overig').slice(0,80),level:String(input.level||'').slice(0,80),sourceNames:Object.fromEntries(docs.map(d=>[d.id,d.name])),approved:false,created:Date.now(),createdBy:user.id};
+ const m={...result.module,...meta,id:old?input.replace:uid(),subject:String(input.subject||'Overig').slice(0,80),level:String(input.level||'').slice(0,80),sourceNames:Object.fromEntries(docs.map(d=>[d.id,d.name])),approved:false,created:Date.now(),createdBy:user.id};
  if(!validModule(m))fail(422,'De analyse leverde geen bruikbare leerstof op. Probeer duidelijkere pagina’s.');
- await audit(env,user,'analysed',`${m.id} ${pages.length}p ${result.usage.input}/${result.usage.output} tokens`);
- return {module:m,rev:await putRow(env,user.family,'module',m.id,null,m,1)};
+ if(old){m.created=old.data.created||m.created;m.title=old.data.title||m.title;}
+ await audit(env,user,old?'reanalysed':'analysed',`${m.id} ${pages.length}p ${result.usage.input}/${result.usage.output} tokens`);
+ return {module:m,rev:await putRow(env,user.family,'module',m.id,null,m,old?old.rev+1:1)};
 }
 
 // Photo grading, explanation feedback and word lists from a photo: same consent as analysis, with their own monthly limit.
