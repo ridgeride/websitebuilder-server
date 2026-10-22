@@ -1,5 +1,9 @@
 # Wijzigingen
 
+## 0.9.2 — 22 oktober 2026
+
+- Foto’s worden standaard door de **AI** gelezen (beste kwaliteit, ook bij tabellen en formules; ± 0,2 cent per bladzijde). Lezen **op het apparaat** (gratis) is een keuze bij *Gezin & instellingen → Foto’s uitlezen*, en wordt altijd gebruikt zonder AI-toestemming of als de AI niet bereikbaar is.
+
 ## 0.9.1 — 22 oktober 2026
 
 - **Gedraaide foto’s:** de draaiing die een telefoon apart opslaat, wordt nu toegepast voordat een foto wordt bewaard of gelezen. Blijft het resultaat slecht, dan probeert Leerstap de foto een kwartslag en een halve slag gedraaid en kiest de beste stand.

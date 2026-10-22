@@ -81,6 +81,8 @@ try{
    ['1.2 Klimaat','Het klimaat is het gemiddelde weer','over een periode van dertig jaar','in een gebied.'].forEach((t,i)=>g.fillText(t,70,120+i*90));
    // Taken sideways, as phones often do: Leerstap has to find the right way up itself.
    const r=document.createElement('canvas');r.width=c.height;r.height=c.width;const h=r.getContext('2d');h.translate(r.width/2,r.height/2);h.rotate(Math.PI/2);h.drawImage(c,-c.width/2,-c.height/2);return r.toDataURL('image/jpeg',.92).split(',')[1];})),'base64');
+  await parent.click('[data-action="nav"][data-route="settings"]');assert.ok(await parent.isChecked('input[name="read-mode"][value="ai"]'),'AI reads by default');
+  await parent.check('input[name="read-mode"][value="device"]');await parent.waitForSelector('#toast:has-text("op dit apparaat gelezen")');await parent.click('[data-action="nav"][data-route="library"]');
   await parent.selectOption('#up-subject','Aardrijkskunde');await parent.fill('#up-chapter','H1 Klimaat');await parent.setInputFiles('#files',{name:'blz-12.jpg',mimeType:'image/jpeg',buffer:PHOTO});
   const map='.card.map:has-text("H1 Klimaat")';await parent.waitForSelector(`${map} :text("foto: eerst de tekst uitlezen")`);assert.equal(await parent.$(`${map} [data-action="analyse"]`),null,'no analysis straight from a photo');
   const t0=Date.now();await parent.click(`${map} [data-action="map-read"]`);await parent.waitForSelector('dialog.review textarea',{timeout:90000});
