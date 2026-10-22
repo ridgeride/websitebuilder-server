@@ -1,0 +1,33 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {numberExpr,grade,totals,chooseQuestions,demoModule,initialState,validateState,validateModule,nextReview,esc,schedulePractice} from '../src/core.js';
+import {derive,encrypt,decrypt} from '../src/vault.js';import {api} from '../worker/api.js';
+test('Equivalent math expressions, decimals and roots',()=>{assert.equal(numberExpr('√81'),9);assert.equal(numberExpr('2√3'),2*Math.sqrt(3));assert.equal(numberExpr('sqrt(50)/sqrt(2)'),5);assert.equal(numberExpr('0,5'),.5);assert.equal(numberExpr('(2×√3)²'),12-Number.EPSILON*8);});
+test('Reject code, variables, division by zero and oversized input',()=>{for(const s of ['alert(1)','process.exit()','2x','1/0','sqrt(-1)','2+'.repeat(200)])assert.throws(()=>numberExpr(s));});
+test('Grade equivalent values, flag steps for partial credit and open answers',()=>{const q=demoModule().questions[0];assert.equal(grade(q,'sqrt(81)').points,2);assert.equal(grade(q,'8','9*9=81').pending,true);assert.equal(grade(q,'8').points,0);assert.equal(grade(q,'negen').pending,true);assert.equal(grade(q,'','').pending,false);assert.equal(grade(demoModule().questions.at(-1),'5 is niet 7').pending,true);});
+test('Grade remains provisional until review and scoring uses weighted points',()=>{assert.deepEqual(totals([{points:2,pending:false},{points:0,pending:true}],[{points:2},{points:3}]),{points:2,max:5,pending:true,grade:4.6});});
+test('Adaptive order prioritizes mistakes and isolates profiles',()=>{const m=demoModule(),a={profile:'a',questions:[m.questions[0]],results:[{points:0,pending:false}],review:{}};assert.equal(chooseQuestions(m,[a],'a','adaptief',1)[0].id,'demo-0');assert.equal(chooseQuestions(m,[a],'b','3',1)[0].level,3);});
+test('Review grows, caps, and resets after a mistake',()=>{assert.equal(nextReview(null,true,0).due,86400000);assert.equal(nextReview({interval:20},true,0).interval,30);assert.equal(nextReview({interval:20},false,0).due,600000);});
+test('Sources must exist and quote verbatim',()=>{const m=demoModule(),pages=[{id:'voorbeeld',page:1,text:m.chapters[0].summary}];assert.ok(validateModule(m,pages));m.questions[0].cite={source:'fake',page:5,quote:'fake'};assert.throws(()=>validateModule(m,pages));});
+test('Encrypted vault and backup round-trip; wrong passwords and tampering rejected',async()=>{const salt=crypto.getRandomValues(new Uint8Array(16)),key=await derive('test-wachtwoord',salt),s=initialState();s.documents.push({id:'doc',data:'secret'});const e=await encrypt(s,key,salt);assert.ok(!JSON.stringify(e).includes('secret'));assert.deepEqual((await decrypt(e,'test-wachtwoord')).state,s);await assert.rejects(()=>decrypt(e,'wrong'));await assert.rejects(()=>decrypt({...e,data:e.data.slice(0,-8)+'AAAAAAAA'},'test-wachtwoord'));assert.throws(()=>validateState({version:99}));});
+test('HTML is escaped',()=>assert.equal(esc('<script>"&'), '&lt;script&gt;&quot;&amp;'));
+test('Exponent precedence follows mathematical convention',()=>{assert.equal(numberExpr('-3^2'),-9);assert.equal(numberExpr('(-3)^2'),9);assert.equal(numberExpr('2^3^2'),512);});
+test('Backup validates all nested data and preserves optional profile extensions',()=>{let s=initialState();s.profiles[0].subjects=['Wiskunde','Latijn'];assert.equal(validateState(s),s);s.modules[0].questions[0].points=-1;assert.throws(()=>validateState(s));s=initialState();s.documents.push({id:'x',name:'x',type:'image/png',data:'x',warnings:[],pages:[{id:'x',page:1,text:'',image:'javascript:alert(1)'}]});assert.throws(()=>validateState(s));});
+test('API missing credentials, origin protection, auth and input validation',async()=>{const req=(origin='http://localhost',body={})=>new Request('http://localhost/api/analyse',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)});assert.equal((await api(req(),{LOCAL_DEV:'1'})).status,503);assert.equal((await api(req('http://evil'),{})).status,403);assert.equal((await api(req(),{})).status,401);assert.equal((await api(req(),{LOCAL_DEV:'1',OPENAI_API_KEY:'fake'})).status,400);});
+test('AI integration validates provider output with a stub, never a live credential',async()=>{let called;const old=globalThis.fetch,m=demoModule();globalThis.fetch=async(url,options)=>{called=JSON.parse(options.body);return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(m)}]}]});};try{let r=await api(new Request('http://localhost/api/analyse',{method:'POST',headers:{Origin:'http://localhost'},body:JSON.stringify({consent:true,subject:'Wiskunde',level:'2 havo/vwo',pages:[{id:'voorbeeld',page:1,text:m.chapters[0].summary}]})}),{LOCAL_DEV:'1',OPENAI_API_KEY:'test-only'});assert.equal(r.status,200);assert.equal(called.store,false);assert.equal(called.text.format.strict,true);}finally{globalThis.fetch=old;}});
+
+test('Mistakes repeat with support then require two independent correct answers',()=>{
+ const q=demoModule().questions[0],d={mode:'practice',questions:[q],answers:[],results:[]};
+ const apply=(i,points)=>{const r={points,pending:false};d.results[i]=r;return schedulePractice(d,i,r);};
+ assert.equal(apply(0,0),true);assert.equal(d.questions[1].support,true);
+ assert.equal(apply(1,2),true);assert.equal(d.questions[2].support,false);
+ assert.equal(apply(2,2),true);assert.equal(apply(3,2),false);assert.equal(d.questions.length,4);
+});
+test('Test sessions, pending reviews and first-time correct answers do not repeat',()=>{
+ for(const [mode,r] of [['test',{points:0,pending:false}],['practice',{points:0,pending:true}],['practice',{points:2,pending:false}]]){
+ const d={mode,questions:[demoModule().questions[0]],answers:[],results:[]};assert.equal(schedulePractice(d,0,r),false);assert.equal(d.questions.length,1);
+ }
+});
+test('Repeats leave two intervening questions and preserve answer alignment',()=>{
+ const d={mode:'practice',questions:demoModule().questions.slice(0,4),answers:[{answer:'8',steps:''}],results:[{points:0,pending:false}]};
+ schedulePractice(d,0,d.results[0]);assert.equal(d.questions[3].id,'demo-0');assert.equal(d.questions[4].id,'demo-3');assert.equal(d.answers[3],null);
+});
