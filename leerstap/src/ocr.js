@@ -13,6 +13,8 @@ export async function readPhotos(images,subject,progress=()=>{}){
  const worker=await createWorker(langs,1,{workerPath:'/ocr/worker.min.js',corePath:'/ocr/core',langPath:'/ocr/lang',workerBlobURL:false});
  try{const out=[];for(const [i,img] of images.entries()){progress(i+1,images.length);
    let best=null;for(const turn of [0,90,270,180]){const {data}=await worker.recognize(await upright(img,turn));const r={text:tidy(data.text),confidence:Math.round(data.confidence),turn};if(!best||r.confidence>best.confidence)best=r;if(best.confidence>=70)break;}
+   // The photo is kept the right way up, for the review screen and for the AI check.
+   if(best.turn)best.image=(await upright(img,best.turn,2000)).toDataURL('image/jpeg',.85);
    out.push(best);}
   return out;}
  finally{await worker.terminate();}

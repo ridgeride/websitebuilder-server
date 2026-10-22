@@ -21,6 +21,7 @@ const ai=http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req
  if(name==='woordjes'){const pages=JSON.parse(body).input[0].content.filter(c=>c.type==='input_text').map(c=>c.text).join('\n');assert.match(pages,/le chat/);return reply({langA:'Nederlands',langB:'Frans',pairs:[{a:'de kat',b:'le chat',page:1},{a:'de hond',b:'le chien',page:1},{a:'het huis',b:'la maison',page:1},{a:'de muis',b:'la souris',page:1}],warnings:[]});}
  if(name==='proefwerk'){const qs=JSON.parse(JSON.parse(body).input[0].content[0].text).vragen;return reply({readable:true,overall:'Wortels uitrekenen gaat goed. Let op bij het combineren van wortels.',answers:qs.map(q=>({number:q.nummer,answerSeen:q.nummer<=2?q.modelantwoord:'1',points:q.nummer<=2?q.maximumPunten:0,confidence:'hoog',feedback:q.nummer<=2?'Goed.':'Dit klopt niet. Reken eerst elke wortel apart uit.',methodMatch:'zelfde methode',methodNote:''}))});}
  if(name==='uitlezen')return reply({pages:[{page:1,text:'§1.2 Klimaat\nHet klimaat is het gemiddelde weer over een periode van dertig jaar in een gebied.\n[Afbeelding: klimaatgrafiek van Utrecht]',unreadable:false}]});
+ if(name==='controle')return reply({pages:[{page:1,issues:[{found:'1.2 Klimaat',should:'§1.2 Klimaat',why:'paragraafteken'},{found:'bestaat niet',should:'x',why:'verzonnen'}]}]});
  if(name==='uitleg')return reply({verdict:'bijna',good:['Je noemt het kwadraat.'],missing:['De uitkomst is nooit negatief.'],beyondBook:[],tip:'Noem ook dat een wortel niet-negatief is.'});
  const input=JSON.parse(JSON.parse(body).input[0].content[0].text),page=input.pages[0],cite={source:page.id,page:page.page,quote:page.text.slice(0,47)};
  const q=(prompt,answer,level)=>({prompt,kind:'numeric',answer,explanation:`Het antwoord is ${answer}.`,hint:'Welk getal keer zichzelf geeft het getal onder de wortel?',goal:['Wortels berekenen','Optellen met wortels','Vermenigvuldigen met wortels'][level-1],rubric:'2 punten voor de juiste uitkomst.',points:2,level,chapter:level===1?0:1,cite});
@@ -86,9 +87,13 @@ try{
   await parent.selectOption('#up-subject','Aardrijkskunde');await parent.fill('#up-chapter','H1 Klimaat');await parent.setInputFiles('#files',{name:'blz-12.jpg',mimeType:'image/jpeg',buffer:PHOTO});
   const map='.card.map:has-text("H1 Klimaat")';await parent.waitForSelector(`${map} :text("foto: eerst de tekst uitlezen")`);assert.equal(await parent.$(`${map} [data-action="analyse"]`),null,'no analysis straight from a photo');
   const t0=Date.now();await parent.click(`${map} [data-action="map-read"]`);await parent.waitForSelector('dialog.review textarea',{timeout:90000});
+  const shape=await parent.$eval('dialog.review img',i=>i.naturalWidth>i.naturalHeight);assert.ok(shape,'the sideways photo is stored the right way up (the test page is landscape)');
   const read=await parent.inputValue('dialog.review textarea');console.log(`\n    (tekst op het apparaat gelezen in ${Math.round((Date.now()-t0)/1000)} s: ${JSON.stringify(read.slice(0,80))})`);
   assert.match(read,/klimaat/i);assert.match(read,/dertig/i);
-  assert.equal(await parent.evaluate(async()=>(await (await fetch('/api/state')).json()).usage.checks),0,'reading on the device costs no AI');
+  await parent.waitForSelector('dialog.review .verify .notice');
+  assert.equal(await parent.evaluate(async()=>(await (await fetch('/api/state')).json()).usage.checks),1,'reading on the device is free; only the AI comparison with the photo counts');
+  await parent.waitForSelector('dialog.review .verify :text("De AI ziet 1 verschil met de foto")');await parent.click('dialog.review [data-action="verify-apply"]');
+  assert.match(await parent.inputValue('dialog.review textarea'),/^§1\.2 Klimaat/,'the suggested correction is applied in the text');await parent.waitForSelector('dialog.review details.tips');
   await parent.click('dialog.review [data-action="review-ai"]');await parent.waitForSelector('dialog.review :text("De AI heeft de tekst opnieuw uitgelezen")');
   await parent.fill('dialog.review textarea','§1.2 Klimaat\nHet klimaat is het gemiddelde weer over een periode van 30 jaar in een gebied.\n[Afbeelding: klimaatgrafiek van Utrecht]');await shot(parent,'05c-tekst-controleren');
   await click(parent,'review-save');await parent.waitForSelector('dialog:has-text("Let op: de tekst is opgeslagen")');await shot(parent,'05d-fotos-verwijderen');

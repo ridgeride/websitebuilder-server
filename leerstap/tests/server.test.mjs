@@ -368,13 +368,17 @@ test('Photos of the book: read out as text, checked by the family, then the phot
   const t=await b.post(`/api/documents/${id}/transcribe`);assert.equal(t.status,200,JSON.stringify(t.body));assert.match(t.body.pages[0].text,/§3.1 Wortels/);assert.ok(t.body.document.transcribed);assert.equal(t.body.document.verified,null);
   assert.match(sent.instructions,/letterlijk over/);assert.match(sent.instructions,/Verzin niets/);assert.equal(sent.input[0].content[1].type,'input_image');
   assert.equal((await b.post(`/api/documents/${id}/text`,{pages:[{page:9,text:'x'}]})).status,400);
+  globalThis.fetch=async(url,o)=>{sent=JSON.parse(o.body);return Response.json({status:'completed',usage:{input_tokens:900,output_tokens:100},output:[{content:[{type:'output_text',text:JSON.stringify({pages:[{page:1,issues:[{found:'§3.1 Wortels',should:'§ 3.1 Wortels',why:'paragraafnummer'},{found:'staat niet in de tekst',should:'iets',why:'verzonnen'},{found:'',should:'Opdracht 1',why:'ontbrekende regel'}]}]})}]}]});};
+  const ver=await b.post(`/api/documents/${id}/verify`,{pages:[{page:1,text:'§3.1 Wortels\nEen vierkantswortel is de niet-negatieve waarde.'}]});assert.equal(ver.status,200,JSON.stringify(ver.body));
+  assert.deepEqual(ver.body.result.pages[0].issues.map(i=>i.why),['paragraafnummer','ontbrekende regel'],'a "difference" that is not in the text is dropped');
+  assert.equal(sent.input[0].content[0].text.includes('Een vierkantswortel is de niet-negatieve waarde.'),true,'the edited text is what is compared');assert.equal(sent.input[0].content[2].type,'input_image');assert.match(sent.instructions,/past zelf niets aan|Noem alleen echte verschillen/);
   const v=await b.post(`/api/documents/${id}/text`,{pages:[{page:1,text:'§3.1 Wortels\nEen vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal onder het wortelteken geeft.'}]});assert.equal(v.status,200);assert.ok(v.body.document.verified);
   const other=await family(env,'q@x.nl');assert.equal((await other.b.post(`/api/documents/${id}/drop-images`)).status,404,'another family cannot touch it');
   const dr=await b.post(`/api/documents/${id}/drop-images`);assert.equal(dr.status,200);assert.ok(dr.body.document.imagesRemoved);assert.equal(dr.body.document.name,'blz-42.txt');assert.equal(dr.body.document.type,'text/plain');
   const pages=(await b.get(`/api/documents/${id}/pages`)).body.pages;assert.equal(pages[0].image,undefined,'the photo is gone');assert.match(pages[0].text,/onder het wortelteken/);
   const orig=Buffer.from((await b.get(`/api/documents/${id}/original`)).body).toString();assert.match(orig,/--- Bladzijde 1 ---/);assert.ok(!orig.includes('jpegdata'));
   assert.equal((await b.post(`/api/documents/${id}/transcribe`)).status,400,'nothing left to read');
-  assert.equal((await b.get('/api/state')).body.usage.checks,1);
+  assert.equal((await b.get('/api/state')).body.usage.checks,2);
  }finally{globalThis.fetch=old;}
 });
 

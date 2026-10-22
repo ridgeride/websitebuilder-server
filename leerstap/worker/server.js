@@ -1,8 +1,8 @@
 import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSession,validPages,validProfile,validWordlist,validPlan,validPaper} from '../src/core.js';
-import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,isImage,HttpError} from './analyse.js';
+import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,verifyText,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.9.2';
+export const APP_VERSION='0.9.3';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -131,9 +131,16 @@ async function transcribeDocument(env,user,id){
  for(const t of result.pages){const p=pages.find(x=>x.page===t.page);if(p&&t.text.trim())p.text=t.text;}
  await savePages(env,user,id,pages);return {pages:pages.map(({page,text,image})=>({page,text,image})),unreadable:result.pages.filter(p=>p.unreadable).map(p=>p.page),...await patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'ai'})};
 }
+async function verifyDocument(env,user,id,input){
+ const pages=await documentPages(env,user,id),photos=pages.filter(p=>p.image);if(!photos.length)fail(400,'Er is geen foto om de tekst mee te vergelijken.');
+ const edits=Array.isArray(input.pages)?input.pages:[];const current=photos.map(p=>({...p,text:String(edits.find(e=>e.page===p.page)?.text??p.text).slice(0,30000)}));
+ return {result:await aiCheck(env,user,()=>verifyText(env,{pages:current}))};
+}
 async function saveText(env,user,id,input){
  const pages=await documentPages(env,user,id),edits=input.pages;if(!Array.isArray(edits)||!edits.length)fail(400,'Geen tekst ontvangen.');
- for(const e of edits){const p=pages.find(x=>x.page===e.page);if(!p||typeof e.text!=='string')fail(400,'Onbekende bladzijde.');if(e.text.length>30000)fail(400,'De tekst van één bladzijde mag maximaal 30.000 tekens zijn.');p.text=e.text;}
+ for(const e of edits){const p=pages.find(x=>x.page===e.page);if(!p||typeof e.text!=='string')fail(400,'Onbekende bladzijde.');if(e.text.length>30000)fail(400,'De tekst van één bladzijde mag maximaal 30.000 tekens zijn.');p.text=e.text;
+  // A photo turned the right way up on the device replaces the sideways one.
+  if(e.image!==undefined){if(!p.image||!isImage(e.image))fail(400,'Ongeldige foto.');p.image=e.image;}}
  await savePages(env,user,id,pages);
  // Text read on the device is stored first and checked afterwards, just like text read by the AI.
  if(input.verified===false)return patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'apparaat'});
@@ -405,6 +412,7 @@ async function route(request,env){
  if(parts[0]==='documents'&&parts.length===3&&method==='POST'){
   if(parts[2]==='transcribe')return json(await transcribeDocument(env,user,parts[1]));
   if(parts[2]==='text')return json(await saveText(env,user,parts[1],await body(request,400000)));
+  if(parts[2]==='verify')return json(await verifyDocument(env,user,parts[1],await body(request,400000)));
   if(parts[2]==='drop-images')return json(await dropImages(env,user,parts[1]));
  }
  if(path==='/api/material/delete'&&method==='POST')return json(await deleteMaterial(env,user,await body(request)));

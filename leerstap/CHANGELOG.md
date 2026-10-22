@@ -1,5 +1,12 @@
 # Wijzigingen
 
+## 0.9.3 — 22 oktober 2026
+
+- **AI controleert de uitgelezen tekst met de foto.** In het controlescherm legt de AI de tekst naast de foto en noemt concrete verschillen (verkeerd nummer, ontbrekende regel, fout woord of getal). Per verschil kies je *Toepassen* of *Negeren*, of *Alles toepassen*. De AI past zelf niets aan. Opnieuw laten controleren kan na eigen verbeteringen. Telt als één AI-controle per bestand.
+- **Tips voor een goede foto** bij het uploaden en in het controlescherm: de scanfunctie van de telefoon gebruiken, plat en recht van boven, goed licht, één bladzijde per foto.
+- Scans als pdf worden scherper omgezet voor het lezen (2× zo veel pixels).
+- Een gedraaide foto wordt na het lezen ook rechtop bewaard, zodat hij in het controlescherm en voor de AI-controle goed staat.
+
 ## 0.9.2 — 22 oktober 2026
 
 - Foto’s worden standaard door de **AI** gelezen (beste kwaliteit, ook bij tabellen en formules; ± 0,2 cent per bladzijde). Lezen **op het apparaat** (gratis) is een keuze bij *Gezin & instellingen → Foto’s uitlezen*, en wordt altijd gebruikt zonder AI-toestemming of als de AI niet bereikbaar is.

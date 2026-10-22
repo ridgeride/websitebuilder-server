@@ -72,6 +72,15 @@ export async function transcribe(env,{pages}){
  const byPage=new Map(data.pages.map(x=>[x.page,x]));
  return {result:{pages:pages.map(p=>({page:p.page,text:String(byPage.get(p.page)?.text||'').slice(0,30000),unreadable:!!byPage.get(p.page)?.unreadable||!byPage.get(p.page)}))},usage};
 }
+// A second, independent look: the AI compares the text with the photo and lists concrete differences. It changes nothing itself.
+export async function verifyText(env,{pages}){
+ const schema=obj({pages:arr(obj({page:num,issues:arr(obj({found:str,should:str,why:str}))}))});
+ const instructions=`Je controleert of een overgeschreven tekst precies overeenkomt met de foto van een bladzijde uit een Nederlands lesboek. ${DATA_ONLY} Noem alleen echte verschillen met de foto: verkeerde of ontbrekende woorden, getallen, paragraafnummers, formules, accenten, of ontbrekende regels. found is het stuk letterlijk zoals het nu in de tekst staat (leeg als er iets ontbreekt), should is wat er op de foto staat, why is kort de reden (bijvoorbeeld "nummer van leerdoel", "ontbrekende regel"). Geen stijl- of opmaakopmerkingen. [Afbeelding: …] en [onleesbaar] zijn bedoeld; die laat je staan. Klopt alles, dan een lege lijst. Maximaal 25 verschillen per bladzijde.`;
+ const content=[];for(const p of pages){content.push({type:'input_text',text:`Bladzijde ${p.page}, de overgeschreven tekst:\n${p.text.slice(0,30000)}`},{type:'input_text',text:`Foto van bladzijde ${p.page}:`},{type:'input_image',image_url:p.image,detail:'high'});}
+ const {data,usage}=await callModel(env,{instructions,content,schema,name:'controle',maxTokens:4000});
+ // Only differences that point at real text (or at something missing) are passed on.
+ return {result:{pages:pages.map(p=>({page:p.page,issues:(data.pages.find(x=>x.page===p.page)?.issues||[]).slice(0,25).map(i=>({found:String(i.found||''),should:String(i.should||'').slice(0,2000),why:String(i.why||'').slice(0,200)})).filter(i=>i.should.trim()&&i.found!==i.should&&(!i.found||p.text.includes(i.found)))}))},usage};
+}
 // Reads a word list from the pupil's own book pages. Every pair must be found literally in the source; anything else is dropped.
 const norm=t=>String(t).toLowerCase().normalize('NFC').replace(/[’`]/g,"'").replace(/\s+/g,' ').trim();
 export async function wordsFromSource(env,{pages}){
