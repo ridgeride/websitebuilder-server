@@ -255,6 +255,14 @@ try{
   await kid.click('[data-action="nav"][data-route="planner"]');await kid.waitForSelector('h2:has-text("Toets wiskunde H3")');await shot(kid,'25-planner-telefoon');
   const o2=await kid.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);assert.ok(o2<=0,'planner fits on a phone');
  });
+ await step('Leerstof verwijderen: één hoofdstuk, daarna alles om schoon te beginnen',async()=>{
+  await parent.click('[data-action="nav"][data-route="library"]');const map='.card.map:has-text("H1 Klimaat")';
+  await parent.click(`${map} summary:has-text("Hoofdstuk verwijderen")`);parent.once('dialog',d=>d.accept());await parent.click(`${map} [data-action="map-delete"]`);
+  await parent.waitForSelector('#toast:has-text("Hoofdstuk verwijderd")');assert.equal(await parent.$(map),null);
+  await parent.click('[data-action="nav"][data-route="settings"]');await parent.click('summary:has-text("Alle leerstof verwijderen")');await parent.fill('#wipe-confirm','VERWIJDER');
+  parent.once('dialog',d=>d.accept());await click(parent,'wipe-material');await parent.waitForSelector('text=Nog geen leerstof');
+  const s=await parent.evaluate(async()=>{const s=await (await fetch('/api/state')).json();return {docs:s.documents.length,modules:s.modules.map(m=>m.id)};});assert.deepEqual(s,{docs:0,modules:['demo']});
+ });
  await step('App is installeerbaar (manifest en service worker)',async()=>{
   const r=await parent.evaluate(async()=>({manifest:(await (await fetch('/manifest.webmanifest')).json()).display,sw:!!(await navigator.serviceWorker.getRegistration())}));
   assert.deepEqual(r,{manifest:'standalone',sw:true});

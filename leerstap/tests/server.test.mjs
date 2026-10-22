@@ -377,6 +377,22 @@ test('Photos of the book: read out as text, checked by the family, then the phot
  }finally{globalThis.fetch=old;}
 });
 
+test('Deleting material: a whole chapter or everything, with or without results; only a parent; the sample lesson stays',async()=>{
+ const env=localEnv();const {b,state}=await family(env,'p@x.nl');const sam=state.profiles[0].id;
+ const d1=(await b.post('/api/documents',textDoc('Bladzijde een.','a.txt'))).body.document.id,d2=(await b.post('/api/documents',textDoc('Bladzijde twee.','b.txt'))).body.document.id;
+ const m={...demoModule(),id:'m1',approved:true,demo:false};assert.equal((await b.put('/api/items/module/m1',{data:m})).status,200);
+ assert.equal((await b.put('/api/items/attempt/a1',{data:{...attemptFor(sam),id:'a1',module:'m1'}})).status,200);
+ await b.post(`/api/profiles/${sam}/login`,{login:'sam',password:'sam-wachtwoord'});const kid=browser(env);await kid.post('/api/login',{login:'sam',password:'sam-wachtwoord'});
+ assert.equal((await kid.post('/api/material/delete',{documents:[d1]})).status,403);
+ assert.equal((await b.post('/api/material/delete',{modules:['demo']})).status,400);
+ assert.equal((await b.post('/api/material/delete',{documents:[d1],modules:['m1']})).status,200);
+ let s=(await b.get('/api/state')).body;assert.deepEqual(s.documents.map(d=>d.id),[d2]);assert.deepEqual(s.modules.map(m=>m.id),['demo']);assert.equal(s.attempts.length,1,'results kept unless asked');
+ assert.equal((await env.FILES.list({prefix:`${s.me&&''}`})).objects.filter(o=>o.key.includes(d1)).length,0,'files are removed');
+ await b.put('/api/items/module/m1',{data:m});
+ assert.equal((await b.post('/api/material/delete',{documents:[d2],modules:['m1'],results:true})).status,200);
+ s=(await b.get('/api/state')).body;assert.equal(s.documents.length,0);assert.equal(s.attempts.length,0);assert.deepEqual(s.modules.map(m=>m.id),['demo']);
+});
+
 test('Export, import of an old device backup, and deleting the whole family',async()=>{
  const env=localEnv();const {b,state}=await family(env,'p@x.nl');
  const id=(await b.post('/api/documents',textDoc('Bron voor de export.'))).body.document.id;

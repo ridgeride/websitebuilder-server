@@ -1,5 +1,10 @@
 # Wijzigingen
 
+## 0.8.1 — 22 oktober 2026
+
+- **Hoofdstuk verwijderen** bij elke map: alle bladzijden en bestanden, de leerstof die ervan gemaakt is en desgewenst de resultaten, in één keer.
+- **Alle leerstof verwijderen** bij *Gezin & instellingen* om schoon te beginnen (met VERWIJDER als bevestiging). Leerlingen, logins en woordenlijsten blijven bestaan. Alleen voor ouders.
+
 ## 0.8.0 — 22 oktober 2026
 
 - **Foto’s van het boek worden tekst.** Bij een hoofdstuk met foto’s staat eerst *Tekst uitlezen en controleren*. De AI schrijft de tekst letterlijk over (met paragraafnummers, formules, tabellen; plaatjes als [Afbeelding: …], onleesbaar als [onleesbaar]). Je ziet foto en tekst naast elkaar, verbetert wat niet klopt en klikt *Tekst klopt*.

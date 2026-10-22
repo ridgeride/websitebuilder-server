@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.8.0';
+export const APP_VERSION='0.8.1';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -98,6 +98,17 @@ async function deleteItem(env,user,kind,id){
  await q(env,'DELETE FROM items WHERE family_id=? AND kind=? AND id=?',user.family,kind,id).run();return {ok:true};
 }
 
+// Removes whole chapters at once: their sources and files, the material made from them, and optionally the results.
+async function deleteMaterial(env,user,input){
+ parentOnly(user);const docs=input.documents||[],modules=input.modules||[];
+ if(!Array.isArray(docs)||!Array.isArray(modules)||docs.length>500||modules.length>200||![...docs,...modules].every(isId))fail(400,'Ongeldige selectie.');
+ if(modules.includes('demo'))fail(400,'De voorbeeldles kun je niet verwijderen.');
+ for(const id of docs){if(await getItem(env,user.family,'document',id))await deletePrefix(env,filesPrefix(user.family,id));}
+ const stmts=[...docs.map(id=>q(env,"DELETE FROM items WHERE family_id=? AND kind='document' AND id=?",user.family,id)),...modules.map(id=>q(env,"DELETE FROM items WHERE family_id=? AND kind='module' AND id=?",user.family,id))];
+ if(input.results===true&&modules.length){for(const id of modules)stmts.push(q(env,"DELETE FROM items WHERE family_id=? AND kind IN ('attempt','draft','paper') AND json_extract(data,'$.module')=?",user.family,id));}
+ if(stmts.length)await env.DB.batch(stmts);await audit(env,user,'deleted-material',`${docs.length} bronnen, ${modules.length} leerstof${input.results?', met resultaten':''}`);
+ return {ok:true};
+}
 async function uploadDocument(env,user,input){
  const meta=input?.meta||{},pages=input?.pages,data=input?.data;
  if(typeof data!=='string'||data.length>14500000||!/^[A-Za-z0-9+/=]*$/.test(data))fail(400,'Bestand ontbreekt of is groter dan 10 MB.');
@@ -392,6 +403,7 @@ async function route(request,env){
   if(parts[2]==='text')return json(await saveText(env,user,parts[1],await body(request,400000)));
   if(parts[2]==='drop-images')return json(await dropImages(env,user,parts[1]));
  }
+ if(path==='/api/material/delete'&&method==='POST')return json(await deleteMaterial(env,user,await body(request)));
  if(path==='/api/analyse'&&method==='POST')return json(await analyse(env,user,await body(request)));
  if(path==='/api/check-work'&&method==='POST')return json(await checkWorkRoute(env,user,await body(request,9000000)));
  if(path==='/api/explain'&&method==='POST')return json(await explainRoute(env,user,await body(request,20000)));
