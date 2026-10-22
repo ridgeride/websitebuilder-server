@@ -31,3 +31,56 @@ test('Repeats leave two intervening questions and preserve answer alignment',()=
  const d={mode:'practice',questions:demoModule().questions.slice(0,4),answers:[{answer:'8',steps:''}],results:[{points:0,pending:false}]};
  schedulePractice(d,0,d.results[0]);assert.equal(d.questions[3].id,'demo-0');assert.equal(d.questions[4].id,'demo-3');assert.equal(d.answers[3],null);
 });
+
+test('Woordjes: alternatives, brackets, articles, accents and small typos',async()=>{
+ const {gradeWord,wordQuestions,parsePairs}=await import('../src/core.js');
+ const q=(answer)=>({kind:'word',prompt:'x',answer,points:1});
+ const cat=(answer,given)=>gradeWord(q(answer),given).category;
+ assert.equal(cat('la maison','La maison.'),'Goed');assert.equal(cat('grand / grande','grande'),'Goed');assert.equal(cat('(to) walk','walk'),'Goed');assert.equal(cat('(to) walk','to walk'),'Goed');
+ assert.equal(cat('la maison','maison'),'Lidwoord');assert.equal(cat('la maison','le maison'),'Lidwoord');assert.equal(cat('l’école','l\'ecole'),'Accent');
+ assert.equal(cat('manger','mangre'),'Fout','two letters swapped is not a one-letter typo');assert.equal(cat('manger','mangr'),'Spelling');assert.equal(cat('chat','chien'),'Fout');assert.equal(cat('chat',''),'Niet ingevuld');
+ assert.equal(gradeWord(q('la maison'),'maison').points,0,'almost right is not right');
+ const list={id:'l1',title:'Frans',pairs:[{id:'p1',a:'het huis',b:'la maison'}]};
+ assert.deepEqual(wordQuestions(list,'both').map(x=>[x.id,x.prompt,x.answer]),[['p1-ab','het huis','la maison'],['p1-ba','la maison','het huis']]);
+ assert.deepEqual(parsePairs('huis = maison\n\nkat - chat\nhond\tchien\nzonder scheiding'),[{a:'huis',b:'maison'},{a:'kat',b:'chat'},{a:'hond',b:'chien'}]);
+});
+
+test('Drill: right first time is done, a mistake needs two in a row, and it ends when everything is mastered',async()=>{
+ const {startDrill,recordDrill,pickDrill,drillDone}=await import('../src/core.js');
+ const pool=['a','b','c'].map(id=>({id}));let {state,next}=startDrill(pool,()=>0);const asked=[next.id],recent=[next.id];
+ // Answer: 'b' wrong the first time, everything else right.
+ let wrongOnce=false,q=next,turns=0;
+ while(q&&turns<20){const correct=!(q.id==='b'&&!wrongOnce);if(q.id==='b')wrongOnce=true;recordDrill(state,q,correct);recent.push(q.id);q=pickDrill(pool,state,recent,()=>0);if(q)asked.push(q.id);turns++;}
+ assert.ok(drillDone(pool,state));assert.equal(asked.filter(x=>x==='a').length,1);assert.equal(asked.filter(x=>x==='b').length,3,'wrong once, then twice right');assert.equal(asked.filter(x=>x==='c').length,1);
+ // Only when one question is left may it come twice in a row.
+ assert.deepEqual(asked,['a','b','c','b','b'],'a mistake comes back after another question');
+});
+
+test('Toetsplanner: a task for every day, a test two days before and a final repeat',async()=>{
+ const {planDays,validPlan}=await import('../src/core.js');
+ const p={id:'p',profile:'k',title:'Toets',start:'2026-11-02',date:'2026-11-09',items:[{type:'module',id:'m'},{type:'wordlist',id:'w'}],minutes:15,checked:{'2026-11-03':true}};
+ assert.ok(validPlan(p));const days=planDays(p);
+ assert.deepEqual(days.map(d=>d.kind),['start','drill','drill','drill','drill','test','repeat']);assert.equal(days[0].day,'2026-11-02');assert.equal(days.at(-1).day,'2026-11-08');
+ assert.equal(days[1].done,true);assert.equal(days[5].item.type,'module','the test day uses the learning material');
+ assert.deepEqual(planDays({...p,date:'2026-11-03'}).map(d=>d.kind),['start']);
+ assert.equal(validPlan({...p,date:'2026-11-01'}),false,'the test cannot be before the start');assert.equal(validPlan({...p,items:[]}),false);
+});
+
+test('Toets op maat: paragraphs, a realistic mix of levels, and feedback per paragraph',async()=>{
+ const {chooseTest,testFeedback,questionChapter,questionsIn}=await import('../src/core.js');
+ const cite={source:'s',page:1,quote:'q'},mk=(i,chapter,level)=>({id:'q'+i,chapter,level,points:2,goal:'Doel '+chapter,kind:'open',prompt:'?',answer:'!',explanation:'',hint:'',rubric:'',cite});
+ const m={chapters:[{title:'§1',goals:['Doel 0'],cite},{title:'§2',goals:['Doel 1'],cite}],questions:[...[1,1,2,2,2,3].map((l,i)=>mk(i,0,l)),...[1,2,3].map((l,i)=>mk(10+i,1,l))]};
+ assert.equal(questionsIn(m,[1]).length,3);assert.equal(questionChapter(m,{goal:'Doel 1',cite}),1,'older questions are matched by learning goal');
+ const t=chooseTest(m,null,6);assert.equal(t.length,6);assert.deepEqual(t.map(q=>q.level),[...t.map(q=>q.level)].sort(),'easy to hard');assert.ok(new Set(t.map(q=>q.level)).size===3,'all levels');
+ assert.ok(chooseTest(m,[1],10).every(q=>q.chapter===1));
+ const a={questions:t,results:t.map(q=>({points:q.chapter===0?q.points:0,pending:false,category:'Rekenfout'}))};
+ const f=testFeedback(m,a);assert.equal(f.find(r=>r.chapter===0).status,'goed');const weak=f.find(r=>r.chapter===1);assert.equal(weak.status,'meer leren');assert.match(weak.why,/Doel 1/);assert.match(weak.why,/rekenfout/);
+});
+
+test('Week summary and mastery count independent answers only',async()=>{
+ const {weekSummary,masteredIds,readiness}=await import('../src/core.js');
+ const now=new Date('2026-11-05T12:00:00').getTime(),q={id:'x',points:1},r=(p)=>({points:p,pending:false});
+ const attempts=[{profile:'k',created:now-86400000,questions:[q],results:[r(0)]},{profile:'k',created:now,questions:[q,{...q,id:'y',support:true}],results:[r(1),r(1)]},{profile:'ander',created:now,questions:[q],results:[r(1)]}];
+ assert.deepEqual([...masteredIds(attempts,'k')],['x']);assert.equal(readiness([q,{id:'y'}],attempts,'k').pct,50);
+ const w=weekSummary(attempts,'k',now);assert.deepEqual(w.days,[false,false,true,true,false,false,false]);assert.equal(w.questions,3);
+});

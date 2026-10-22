@@ -12,6 +12,8 @@ export function records(state,drafts,profile){
  for(const m of state.modules)put('module:'+m.id,m);
  for(const {pages,data,...meta} of state.documents)put('document:'+meta.id,meta);
  for(const a of state.attempts)put('attempt:'+a.id,a);
+ for(const w of state.wordlists||[])put('wordlist:'+w.id,w);
+ for(const p of state.plans||[])put('plan:'+p.id,p);
  for(const [id,draft] of Object.entries({...drafts,[profile]:state.draft}))if(draft)put('draft:'+id,draft);
  for(const {id,name,schoolType,year,subjects} of state.profiles)put('profile:'+id,{name,schoolType,year,subjects});
  return out;

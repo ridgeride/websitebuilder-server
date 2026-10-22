@@ -1,4 +1,4 @@
-# Leerstap 0.5.0
+# Leerstap 0.6.0
 
 Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders. Upload je leerstof, laat AI er een samenvatting en oefenvragen van maken, en oefen tot je het snapt. Fouten komen terug, eerst met uitleg. Proefwerken kun je online maken of als PDF printen, met opgaven en antwoorden apart.
 
@@ -14,6 +14,16 @@ Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders.
 6. **Proefwerk:** zonder hints. Daarna punten, uitwerkingen en foutfocus. PDF-opgaven en PDF-antwoorden met puntenmodel apart.
 7. **Voortgang:** open antwoorden en twijfelgevallen beoordeelt de ouder met (halve) deelpunten. Het cijfer (`1 + 9 × punten/totaal`) blijft voorlopig tot alles beoordeeld is.
 
+Daarnaast:
+
+- **Drill:** alle vragen van de gekozen paragrafen, tot alles beheerst is. Goed in één keer: klaar. Fout: terug tot twee keer achter elkaar goed.
+- **Woordjes:** woordenlijsten typen of uit een foto van het boek laten halen, overhoren in beide richtingen, hulp bij bijna-goed (lidwoord, accent, kleine spelfout) en uitspraak.
+- **Toets op maat:** paragrafen kiezen, een realistische toets met alle niveaus, en daarna terugkoppeling per paragraaf: wat zit goed, waar moet je meer op leren en waarom, met een knop om precies dat te drillen.
+- **Toetsplanner:** toets met datum en leerstof, een korte taak per dag, twee dagen ervoor een proefwerk, de dag ervoor herhaling. De taak van vandaag staat op de startpagina.
+- **AI-hulp voor de leerling** (met toestemming van de ouder): een foto van de uitwerking laten nakijken met deelpunten, en feedback op een eigen uitleg van een begrip. Open vragen kun je ook zelf nakijken met het modelantwoord.
+- **Rustige motivatie:** weekoverzicht en "klaar voor de toets"-percentage per leerstof, zonder punten of ranglijsten.
+- **Meldingen:** vanuit de app een idee, vraag of probleem sturen; het antwoord verschijnt in de app.
+
 Tijdens de proef beheert de beheerder op de pagina **Beheer** wie mee mag doen: persoonlijke uitnodigingen (link + eenmalige code, eventueel gekoppeld aan één e-mailadres), toegangsaanvragen accepteren of afwijzen, gezinnen pauzeren of verwijderen, en een nieuwe herstelcode voor een ouder die de code kwijt is.
 
 Alles wordt automatisch opgeslagen in het account. Je kunt verder op een ander apparaat. Leerstap is te installeren op het beginscherm (PWA). Zonder account kun je de voorbeeldles proberen; die wordt niet bewaard.
@@ -24,7 +34,7 @@ Vereist Node.js 22.13 of nieuwer.
 
 ```text
 npm ci
-npm test            # 30 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
+npm test            # 38 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
 npm run build       # bouwt dist/public
 npm start           # http://127.0.0.1:4173, gegevens in ./data
 npm run test:e2e    # volledige route in een echte browser (ouder én kind), met een nep-AI

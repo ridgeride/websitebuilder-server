@@ -65,7 +65,7 @@ npx wrangler secret put INVITE_CODE
 
 Typ een code die je zelf kiest, bijvoorbeeld `PROEF-NAJAAR`, en geef die aan de proefgezinnen. Haal de code later weg met `npx wrangler secret delete INVITE_CODE`.
 
-De maandlimiet voor AI-analyses per gezin staat in `wrangler.toml` (`AI_MONTHLY_LIMIT`, standaard 30).
+De maandlimiet voor AI-analyses per gezin staat in `wrangler.toml` (`AI_MONTHLY_LIMIT`, standaard 30). Foto nakijken, "leg het uit" en woordjes uit een foto hebben een eigen limiet (`AI_CHECK_LIMIT`, standaard 300); die zijn veel goedkoper dan een analyse.
 
 ## 6. Privacyverklaring en voorwaarden invullen
 
@@ -102,6 +102,7 @@ Na elke wijziging in `main` publiceert GitHub dan zelf, maar alleen als alle tes
 Log in met het ouderaccount waarvan het e-mailadres in `wrangler.toml` bij `ADMIN_EMAILS` staat. In het menu verschijnt dan **Beheer**:
 
 - **Gezin uitnodigen:** vul in voor wie de uitnodiging is en klik op *Uitnodiging maken*. Kopieer de link of het bericht en stuur het via WhatsApp of mail. Elke code werkt één keer. Een uitnodiging die nog niet gebruikt is, kun je intrekken.
+- **Meldingen:** ideeën, vragen en problemen die gebruikers met *Idee of vraag?* sturen. Beantwoord ze hier; het antwoord verschijnt bij de gebruiker in de app.
 - **Aanvragen:** wie geen uitnodiging heeft, kan op de inlogpagina toegang aanvragen. In het menu staat dan *Beheer · 1*. *Accepteren* maakt een uitnodiging voor dat e-mailadres; laat het de aanvrager weten met *Mailen* of een bericht. Daarna maakt die bij *Account maken* een account met hetzelfde e-mailadres, zonder code. *Afwijzen* verwijdert de aanvraag.
 - **Uitnodiging koppelen aan een e-mailadres:** vul bij *Gezin uitnodigen* het e-mailadres van de ouder in. De code werkt dan alleen voor dat adres.
 - **Gezinnen:** je ziet per gezin het e-mailadres van de ouder, aantallen en het AI-gebruik, nooit leerstof of antwoorden. *Pauzeren* meldt het gezin overal af en blokkeert inloggen; *Hervatten* zet het weer aan. *Nieuwe herstelcode* helpt een ouder die de code kwijt is: geef de nieuwe code persoonlijk door. *Gezin verwijderen* wist alles van dat gezin definitief.

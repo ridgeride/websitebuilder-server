@@ -1,5 +1,23 @@
 # Wijzigingen
 
+## 0.6.0 — 22 oktober 2026
+
+Een complete leerapp voor de leerling.
+
+- **Drill:** alle vragen van de gekozen paragrafen tot alles beheerst is. Wat in één keer goed gaat, komt niet meer terug; wat fout ging, komt na een andere vraag terug tot het twee keer achter elkaar goed is. Ook "Drill de fouten" vanuit Voortgang.
+- **Woordjes:** nieuwe pagina. Lijsten typen (`huis = maison`, alternatieven met `/`, haakjes optioneel) of uit een foto van het boek laten halen. Overhoren in beide richtingen, met uitleg bij bijna-goed (lidwoord, accent, kleine spelfout) en uitspraak via de browser. Elk gezin krijgt een Franse voorbeeldlijst.
+- **Toets op maat:** paragrafen kiezen, een realistische toets (basis, toepassen en inzicht door elkaar, van makkelijk naar moeilijk, met richttijd) of één niveau. Na afloop terugkoppeling per paragraaf en leerdoel: wat zit goed, waar je meer op moet leren en waarom (bijvoorbeeld "3× rekenfout"), met knoppen naar de samenvatting en een drill van precies die paragraaf. De AI geeft nieuwe vragen nu een paragraaf mee; bij oudere leerstof wordt die afgeleid.
+- **Toetsplanner:** toets met datum, leerstof en tijd per dag. Elke dag een korte taak; twee dagen ervoor een proefwerk, de dag ervoor alleen herhalen wat nog niet zit. Oefenen met die leerstof vinkt de dag af. De taak van vandaag staat op de startpagina; ouders zien de planning per kind.
+- **AI-nakijken van een foto:** in oefenen en drill een foto van de uitwerking laten nakijken met het puntenmodel, met per stap wat klopt. Twijfel wordt als twijfel getoond; de foto wordt niet bewaard.
+- **Zelf nakijken:** open vragen in oefenen en drill vergelijk je met het modelantwoord (goed, deels, nog niet).
+- **Leg het uit:** bij elke paragraaf een begrip in eigen woorden uitleggen; de AI vergelijkt het met het boek en zegt wat klopt, wat mist en geeft een tip.
+- **Rustige motivatie:** weekoverzicht (dagen geoefend, vragen beantwoord, wat stevig zit) en "klaar voor de toets"-percentages per leerstof, paragraaf, woordenlijst en planning.
+- **Meldingen:** knop *Idee of vraag?* in elke pagina. Meldingen verschijnen in Beheer (met aantal in het menu); je antwoord ziet de gebruiker in de app.
+- **Wachtwoord van een kind:** duidelijker te vinden bij *Gezin & instellingen* ("Wachtwoord vergeten? Nieuw wachtwoord instellen").
+- AI-controles (foto, uitleg, woordjes uit foto) hebben een eigen maandlimiet per gezin (`AI_CHECK_LIMIT`, standaard 300) en tellen niet mee voor de analyses.
+- Back-ups bevatten nu ook woordenlijsten en planningen. Privacyverklaring aangevuld.
+- Migratie `0004_leren.sql` (tabel `items` opnieuw opgebouwd met twee nieuwe soorten, tabel `feedback`, kolom `usage.checks`). Bestaande gegevens blijven staan.
+
 ## 0.5.0 — 22 oktober 2026
 
 - **Toegang aanvragen:** op de inlogpagina staat een tabblad *Toegang aanvragen* (naam, e-mail, optioneel bericht). Aanvragen verschijnen in Beheer, met het aantal in het menu (*Beheer · 2*). *Accepteren* maakt een uitnodiging die alleen voor dat e-mailadres werkt, met een knop *Mailen* die je mailprogramma opent met het bericht klaar. *Afwijzen* verwijdert de aanvraag.
