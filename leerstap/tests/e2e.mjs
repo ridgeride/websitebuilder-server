@@ -75,11 +75,17 @@ try{
   await parent.fill('.card.map:has-text("H3 Wortels") input[id^="move-chapter"]','H3 Wortels en kwadraten');await parent.click('.card.map:has-text("H3 Wortels") [data-action="map-move"]');
   await parent.waitForSelector('.card.map h3:has-text("H3 Wortels en kwadraten")');await shot(parent,'05b-hoofdstukken');
  });
- await step('Foto van het boek: tekst uitlezen, controleren en verbeteren, foto’s verwijderen, dan analyseren',async()=>{
-  const PHOTO=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
+ await step('Foto van het boek: tekst op het apparaat lezen (gratis), controleren, eventueel door de AI, foto’s verwijderen, dan analyseren',async()=>{
+  // A real photo-like page with text, so the on-device recognition is really exercised.
+  const PHOTO=Buffer.from((await parent.evaluate(()=>{const c=document.createElement('canvas');c.width=1400;c.height=700;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.fillStyle='#111';g.font='44px Georgia';
+   ['1.2 Klimaat','Het klimaat is het gemiddelde weer','over een periode van dertig jaar','in een gebied.'].forEach((t,i)=>g.fillText(t,70,120+i*90));return c.toDataURL('image/png').split(',')[1];})),'base64');
   await parent.selectOption('#up-subject','Aardrijkskunde');await parent.fill('#up-chapter','H1 Klimaat');await parent.setInputFiles('#files',{name:'blz-12.png',mimeType:'image/png',buffer:PHOTO});
   const map='.card.map:has-text("H1 Klimaat")';await parent.waitForSelector(`${map} :text("foto: eerst de tekst uitlezen")`);assert.equal(await parent.$(`${map} [data-action="analyse"]`),null,'no analysis straight from a photo');
-  await parent.click(`${map} [data-action="map-read"]`);await parent.waitForSelector('dialog.review textarea');assert.match(await parent.inputValue('dialog.review textarea'),/dertig jaar/);
+  const t0=Date.now();await parent.click(`${map} [data-action="map-read"]`);await parent.waitForSelector('dialog.review textarea',{timeout:90000});
+  const read=await parent.inputValue('dialog.review textarea');console.log(`\n    (tekst op het apparaat gelezen in ${Math.round((Date.now()-t0)/1000)} s: ${JSON.stringify(read.slice(0,80))})`);
+  assert.match(read,/klimaat/i);assert.match(read,/dertig/i);
+  assert.equal(await parent.evaluate(async()=>(await (await fetch('/api/state')).json()).usage.checks),0,'reading on the device costs no AI');
+  await parent.click('dialog.review [data-action="review-ai"]');await parent.waitForSelector('dialog.review :text("De AI heeft de tekst opnieuw uitgelezen")');
   await parent.fill('dialog.review textarea','§1.2 Klimaat\nHet klimaat is het gemiddelde weer over een periode van 30 jaar in een gebied.\n[Afbeelding: klimaatgrafiek van Utrecht]');await shot(parent,'05c-tekst-controleren');
   await click(parent,'review-save');await parent.waitForSelector('dialog:has-text("Let op: de tekst is opgeslagen")');await shot(parent,'05d-fotos-verwijderen');
   await parent.click('dialog [data-action="drop-photos"]');await parent.waitForSelector('#toast:has-text("De foto is verwijderd")');

@@ -321,6 +321,7 @@ test('AI checks use the book: photo grading and explanations get the cited book 
   assert.ok(graded.some(c=>c.type==='input_text'&&c.text.startsWith('Bronpagina 1 uit het boek')&&c.text.includes('schrijf eerst het getal als kwadraat')),'the book page itself is sent');
   assert.match(sent[1].instructions,/andere, wiskundig of inhoudelijk juiste methode/);assert.equal(sent[1].store,false);
   const e=await b.post('/api/explain',{module:m.id,chapter:0,term:'Vierkantswortel',text:'Het getal dat keer zichzelf het getal onder de wortel geeft.'});assert.equal(e.status,200);
+  assert.equal(sent[1].model,'gpt-4.1-mini','grading uses the main model');assert.equal(sent[2].model,'gpt-4.1-nano','a text-only explanation check uses the cheaper model');
   assert.deepEqual(e.body.result.beyondBook,['Je noemt complexe getallen']);assert.ok(sent[2].input[0].content.some(c=>c.text?.startsWith('Bronpagina 1')));
   // Words come only from an uploaded source, and only if they are literally in it.
   assert.equal((await b.post('/api/words-from-source',{documents:[]})).status,400);assert.equal((await b.post('/api/words-from-source',{documents:['onbekend']})).status,404);

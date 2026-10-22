@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.8.2';
+export const APP_VERSION='0.9.0';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -125,15 +125,19 @@ async function uploadDocument(env,user,input){
 async function savePages(env,user,id,pages){await env.FILES.put(filesPrefix(user.family,id)+'pages.json',JSON.stringify(pages),{httpMetadata:{contentType:'application/json'}});}
 async function patchDocument(env,user,id,patch){const d=await getItem(env,user.family,'document',id);const data={...d.data,...patch};await putRow(env,user.family,'document',id,null,data,d.rev+1);return {document:data,rev:d.rev+1};}
 async function transcribeDocument(env,user,id){
+ const d=await getItem(env,user.family,'document',id);if(d?.data.imagesRemoved)fail(400,'Deze bron heeft geen foto’s meer om uit te lezen.');
  const pages=await documentPages(env,user,id),photos=pages.filter(p=>p.image);if(!photos.length)fail(400,'Deze bron heeft geen foto’s om uit te lezen.');
  const result=await aiCheck(env,user,()=>transcribe(env,{pages:photos}));
  for(const t of result.pages){const p=pages.find(x=>x.page===t.page);if(p&&t.text.trim())p.text=t.text;}
- await savePages(env,user,id,pages);return {pages:pages.map(({page,text,image})=>({page,text,image})),unreadable:result.pages.filter(p=>p.unreadable).map(p=>p.page),...await patchDocument(env,user,id,{transcribed:Date.now(),verified:null})};
+ await savePages(env,user,id,pages);return {pages:pages.map(({page,text,image})=>({page,text,image})),unreadable:result.pages.filter(p=>p.unreadable).map(p=>p.page),...await patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'ai'})};
 }
 async function saveText(env,user,id,input){
  const pages=await documentPages(env,user,id),edits=input.pages;if(!Array.isArray(edits)||!edits.length)fail(400,'Geen tekst ontvangen.');
  for(const e of edits){const p=pages.find(x=>x.page===e.page);if(!p||typeof e.text!=='string')fail(400,'Onbekende bladzijde.');if(e.text.length>30000)fail(400,'De tekst van één bladzijde mag maximaal 30.000 tekens zijn.');p.text=e.text;}
- await savePages(env,user,id,pages);await audit(env,user,'text-verified',id);return patchDocument(env,user,id,{verified:Date.now()});
+ await savePages(env,user,id,pages);
+ // Text read on the device is stored first and checked afterwards, just like text read by the AI.
+ if(input.verified===false)return patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'apparaat'});
+ await audit(env,user,'text-verified',id);return patchDocument(env,user,id,{verified:Date.now()});
 }
 async function dropImages(env,user,id){
  const d=await getItem(env,user.family,'document',id);if(!d)fail(404,'Bron niet gevonden.');if(!d.data.verified)fail(400,'Controleer eerst de tekst. Pas daarna kunnen de foto’s weg.');

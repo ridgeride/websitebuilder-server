@@ -8,8 +8,8 @@ import {localEnv} from './local-env.mjs';
 const port=Number(process.env.PORT||4173),host=process.env.HOST||'127.0.0.1',publicDir=path.resolve('dist/public');
 if(!fs.existsSync(path.join(publicDir,'index.html'))){console.error('Bouw eerst de app: npm run build');process.exit(1);}
 const dataDir=path.resolve(process.env.LEERSTAP_DATA||'data');
-const env=localEnv({dataDir,OPENAI_API_KEY:process.env.OPENAI_API_KEY,OPENAI_MODEL:process.env.OPENAI_MODEL,OPENAI_BASE_URL:process.env.OPENAI_BASE_URL,AI_MONTHLY_LIMIT:process.env.AI_MONTHLY_LIMIT,AI_CHECK_LIMIT:process.env.AI_CHECK_LIMIT,INVITE_CODE:process.env.INVITE_CODE,INVITE_ONLY:process.env.INVITE_ONLY,ADMIN_EMAILS:process.env.ADMIN_EMAILS});
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.pdf':'application/pdf','.txt':'text/plain; charset=utf-8'};
+const env=localEnv({dataDir,OPENAI_API_KEY:process.env.OPENAI_API_KEY,OPENAI_MODEL:process.env.OPENAI_MODEL,OPENAI_MODEL_LIGHT:process.env.OPENAI_MODEL_LIGHT,OPENAI_BASE_URL:process.env.OPENAI_BASE_URL,AI_MONTHLY_LIMIT:process.env.AI_MONTHLY_LIMIT,AI_CHECK_LIMIT:process.env.AI_CHECK_LIMIT,INVITE_CODE:process.env.INVITE_CODE,INVITE_ONLY:process.env.INVITE_ONLY,ADMIN_EMAILS:process.env.ADMIN_EMAILS});
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.pdf':'application/pdf','.txt':'text/plain; charset=utf-8','.wasm':'application/wasm','.gz':'application/gzip'};
 const server=http.createServer(async(req,res)=>{try{
  const url=new URL(req.url,`http://${req.headers.host||host+':'+port}`);
  if(url.pathname.startsWith('/api/')){const chunks=[];let size=0;for await(const c of req){size+=c.length;if(size>45000000){res.writeHead(413);res.end('Te groot');return;}chunks.push(c);}

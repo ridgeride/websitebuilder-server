@@ -1,5 +1,15 @@
 # Wijzigingen
 
+## 0.9.0 — 22 oktober 2026
+
+Goedkoper, zonder in te leveren op "alleen uit het boek".
+
+- **Tekst uitlezen op het apparaat zelf.** Foto’s van het boek worden in de browser gelezen (Tesseract, Nederlandse taalmodellen plus Frans, Engels, Duits of Spaans bij die vakken), zonder AI en zonder kosten. De foto gaat daarvoor nergens heen. De bestanden komen van de eigen site en worden alleen de eerste keer geladen.
+- **De AI als reserve:** twijfelde de herkenning, of klopt het niet bij formules of een rommelige bladzijde, dan staat in het controlescherm *Laat de AI het uitlezen*.
+- **Goedkoper model voor eenvoudige taken:** *Leg het uit* en woordjes uit tekst gebruiken `OPENAI_MODEL_LIGHT` (standaard `gpt-4.1-nano`). Nakijken, samenvattingen, papieren proefwerken en alles met een foto blijven op het hoofdmodel.
+- Duidelijke foutmelding als OpenAI weigert: tegoed of budget op, sleutel geweigerd, model niet beschikbaar, of even te druk.
+- Beveiligingsregels: `'wasm-unsafe-eval'` toegestaan, nodig voor de tekstherkenning in de browser.
+
 ## 0.8.2 — 22 oktober 2026
 
 - Zelf een vak toevoegen bij het uploaden en verplaatsen (*+ Ander vak toevoegen…*). Meer vakken in de lijst, zoals Natuur & techniek, Science en Mens & maatschappij. Vakken die al in gebruik zijn, staan bovenaan.

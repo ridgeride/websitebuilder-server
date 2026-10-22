@@ -30,6 +30,8 @@ jurisdiction = "eu"
 
 [vars]
 OPENAI_MODEL = "gpt-4.1-mini"
+# Goedkoper model voor eenvoudige taken zonder foto (leg het uit, woordjes uit tekst).
+OPENAI_MODEL_LIGHT = "gpt-4.1-nano"
 AI_MONTHLY_LIMIT = "30"
 # Per gezin per maand: foto nakijken, "leg het uit" en woordjes uit een foto.
 AI_CHECK_LIMIT = "300"

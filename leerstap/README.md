@@ -1,4 +1,4 @@
-# Leerstap 0.8.2
+# Leerstap 0.9.0
 
 Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders. Upload je leerstof, laat AI er een samenvatting en oefenvragen van maken, en oefen tot je het snapt. Fouten komen terug, eerst met uitleg. Proefwerken kun je online maken of als PDF printen, met opgaven en antwoorden apart.
 
@@ -18,7 +18,7 @@ Daarnaast:
 
 - **Drill:** alle vragen van de gekozen paragrafen, tot alles beheerst is. Goed in één keer: klaar. Fout: terug tot twee keer achter elkaar goed.
 - **Alles uit het eigen boek:** samenvattingen, vragen en uitwerkingen komen alleen uit de geüploade bronnen, volgens de werkwijze van het boek. Nakijken en "leg het uit" worden vergeleken met de bladzijde zelf; een goed antwoord met een andere methode wordt uitgelegd.
-- **Foto’s worden tekst:** Leerstap leest de tekst van foto’s uit, de familie controleert en verbetert hem, en daarna wordt alles uit die gecontroleerde tekst gemaakt (citaten worden er letterlijk tegen gecontroleerd). De foto’s kunnen daarna worden verwijderd; dan blijft alleen de tekst bewaard.
+- **Foto’s worden tekst:** Leerstap leest de tekst van foto’s uit op het apparaat zelf (gratis; bij twijfel kan de AI het overnemen), de familie controleert en verbetert hem, en daarna wordt alles uit die gecontroleerde tekst gemaakt (citaten worden er letterlijk tegen gecontroleerd). De foto’s kunnen daarna worden verwijderd; dan blijft alleen de tekst bewaard.
 - **Papieren proefwerk:** printen met een code, op papier maken, foto’s uploaden; nakijken met cijfer, punten en terugkoppeling per paragraaf en per soort vraag of som.
 - **Kiezen wat je leert:** per paragraaf en onderwerp aan- of uitzetten, en overslaan wat je al beheerst. **Advies** op de startpagina: wat je vandaag het best kunt doen, en waarom.
 - **Woordjes:** alleen uit de eigen bron (verzonnen woorden worden geweigerd) of zelf overgetypt, overhoren in beide richtingen, hulp bij bijna-goed (lidwoord, accent, kleine spelfout) en uitspraak.

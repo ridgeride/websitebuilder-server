@@ -18,10 +18,12 @@ export const validPage=p=>typeof p?.id==='string'&&Number.isInteger(p.page)&&typ
 const isImage=v=>typeof v==='string'&&v.length<=8000000&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v);
 export {isImage};
 // One structured call to the Responses API; every AI feature goes through here so timeouts, errors and usage are handled the same way.
-async function callModel(env,{instructions,content,schema,name,maxTokens=2500}){
+async function callModel(env,{instructions,content,schema,name,maxTokens=2500,light=false}){
+ // Simple text-only tasks use the cheaper model; anything with a photo or a grade uses the main one.
+ const model=light&&!content.some(c=>c.type==='input_image')?env.OPENAI_MODEL_LIGHT||'gpt-4.1-nano':env.OPENAI_MODEL||'gpt-4.1-mini';
  if(!env.OPENAI_API_KEY)throw new HttpError(503,'AI is nog niet gekoppeld.');
  let response;
- try{response=await fetch((env.OPENAI_BASE_URL||'https://api.openai.com/v1')+'/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({model:env.OPENAI_MODEL||'gpt-4.1-mini',store:false,max_output_tokens:maxTokens,instructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name,strict:true,schema}}})});}
+ try{response=await fetch((env.OPENAI_BASE_URL||'https://api.openai.com/v1')+'/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({model,store:false,max_output_tokens:maxTokens,instructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name,strict:true,schema}}})});}
  catch(e){throw new HttpError(504,e.name==='TimeoutError'?'De AI deed er te lang over. Probeer het opnieuw.':'De AI-dienst is niet bereikbaar. Probeer het later opnieuw.');}
  if(!response.ok)throw await providerError(response);
  const result=await response.json(),usage={input:result.usage?.input_tokens||0,output:result.usage?.output_tokens||0};
@@ -47,7 +49,7 @@ export async function checkWork(env,{question,answer,steps,image,level,method,so
 export async function explainFeedback(env,{term,definition,summary,quote,method,text,level,source=[]}){
  const schema=obj({verdict:{type:'string',enum:['goed','bijna','nog niet']},good:arr(str),missing:arr(str),beyondBook:arr(str),tip:str});
  const instructions=`Je bent een Nederlandse vakdocent. Een leerling legt een begrip in eigen woorden uit. ${DATA_ONLY} Vergelijk de uitleg uitsluitend met het boek: de bronpagina, de definitie, de samenvatting en de methode. ${BOOK_ONLY} Noem in good wat klopt volgens het boek, in missing wat ontbreekt of in strijd is met het boek (maximaal 3 punten elk), en in beyondBook wat de leerling zegt dat niet in het boek staat (dat hoeft niet fout te zijn, maar zeg dat de toets uitgaat van het boek). Geef één tip die naar het boek verwijst. Eigen woorden en voorbeelden zijn juist goed; letterlijk overnemen is niet nodig.`;
- const {data,usage}=await callModel(env,{instructions,content:[{type:'input_text',text:JSON.stringify({niveau:String(level||'').slice(0,80),begrip:term,definitieUitBron:definition,samenvatting:String(summary).slice(0,6000),methodeUitHetBoek:String(method||'').slice(0,3000),citaat:quote,uitlegVanLeerling:String(text).slice(0,2000)})},...sourceContent(source)],schema,name:'uitleg',maxTokens:1200});
+ const {data,usage}=await callModel(env,{instructions,content:[{type:'input_text',text:JSON.stringify({niveau:String(level||'').slice(0,80),begrip:term,definitieUitBron:definition,samenvatting:String(summary).slice(0,6000),methodeUitHetBoek:String(method||'').slice(0,3000),citaat:quote,uitlegVanLeerling:String(text).slice(0,2000)})},...sourceContent(source)],schema,name:'uitleg',maxTokens:1200,light:true});
  return {result:{verdict:data.verdict,good:(data.good||[]).slice(0,5).map(String),missing:(data.missing||[]).slice(0,5).map(String),beyondBook:(data.beyondBook||[]).slice(0,5).map(String),tip:String(data.tip).slice(0,500)},usage};
 }
 // Grades a whole test done on paper, from photos or a scan, question by question against the points model and the book.
@@ -77,7 +79,7 @@ export async function wordsFromSource(env,{pages}){
  const instructions=`Haal de woordenlijst (woorden of zinnetjes met hun vertaling) uit de bronpagina’s van een Nederlands lesboek. ${DATA_ONLY} Neem uitsluitend paren over die letterlijk in de bron staan, precies zoals ze er staan: met lidwoorden, accenten en hoofdletters. Voeg nooit zelf woorden, vertalingen, lidwoorden of voorbeelden toe en verbeter niets. a is de eerste taal, b de tweede; page is het paginanummer. Wat je niet goed kunt lezen, laat je weg en meld je in warnings. Staat er geen woordenlijst in de bron: lege pairs en een warning. Maximaal 300 paren.`;
  const content=[{type:'input_text',text:'Bronpagina’s:'}];
  for(const p of pages.slice(0,10)){if(p.text?.trim())content.push({type:'input_text',text:`Pagina ${p.page}:\n${p.text.slice(0,20000)}`});if(p.image)content.push({type:'input_text',text:`Foto van pagina ${p.page}:`},{type:'input_image',image_url:p.image,detail:'high'});}
- const {data,usage}=await callModel(env,{instructions,content,schema,name:'woordjes',maxTokens:8000});
+ const {data,usage}=await callModel(env,{instructions,content,schema,name:'woordjes',maxTokens:8000,light:true});
  // Text pages: both sides must literally be on that page. Photo-only pages cannot be checked here, so the pupil is asked to compare.
  let dropped=0,unchecked=0;const pairs=[];
  for(const x of data.pairs.slice(0,300)){const a=String(x.a).trim().slice(0,200),b=String(x.b).trim().slice(0,200);if(!a||!b)continue;
