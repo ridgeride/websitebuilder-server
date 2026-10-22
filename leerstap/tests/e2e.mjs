@@ -255,6 +255,13 @@ try{
   await kid.click('[data-action="nav"][data-route="planner"]');await kid.waitForSelector('h2:has-text("Toets wiskunde H3")');await shot(kid,'25-planner-telefoon');
   const o2=await kid.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);assert.ok(o2<=0,'planner fits on a phone');
  });
+ await step('Zelf een vak toevoegen dat niet in de lijst staat',async()=>{
+  await parent.click('[data-action="nav"][data-route="library"]');assert.ok(await parent.$('#up-subject option:text-is("Natuur & techniek")'),'common subjects are listed');
+  parent.once('dialog',d=>d.accept('Verzorging'));await parent.selectOption('#up-subject','__new');assert.equal(await parent.inputValue('#up-subject'),'Verzorging');
+  await parent.fill('#up-chapter','H2 Gezonde voeding');await parent.setInputFiles('#files',{name:'voeding.txt',mimeType:'text/plain',buffer:Buffer.from('Gezonde voeding bevat groente, fruit en volkorenproducten. De Schijf van Vijf helpt je kiezen.')});
+  await parent.waitForSelector('.subject-head:has-text("Verzorging")');await parent.waitForSelector('.card.map:has-text("H2 Gezonde voeding")');
+  assert.ok(await parent.$('#up-subject option:text-is("Verzorging")'),'the new subject stays in the list');
+ });
  await step('Leerstof verwijderen: één hoofdstuk, daarna alles om schoon te beginnen',async()=>{
   await parent.click('[data-action="nav"][data-route="library"]');const map='.card.map:has-text("H1 Klimaat")';
   await parent.click(`${map} summary:has-text("Hoofdstuk verwijderen")`);parent.once('dialog',d=>d.accept());await parent.click(`${map} [data-action="map-delete"]`);

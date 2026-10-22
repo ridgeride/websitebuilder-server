@@ -1,5 +1,9 @@
 # Wijzigingen
 
+## 0.8.2 — 22 oktober 2026
+
+- Zelf een vak toevoegen bij het uploaden en verplaatsen (*+ Ander vak toevoegen…*). Meer vakken in de lijst, zoals Natuur & techniek, Science en Mens & maatschappij. Vakken die al in gebruik zijn, staan bovenaan.
+
 ## 0.8.1 — 22 oktober 2026
 
 - **Hoofdstuk verwijderen** bij elke map: alle bladzijden en bestanden, de leerstof die ervan gemaakt is en desgewenst de resultaten, in één keer.
