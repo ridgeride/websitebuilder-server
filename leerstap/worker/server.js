@@ -1,13 +1,13 @@
-import {uid,isId,demoModule,demoWordlist,validModule,validDocumentMeta,validAttempt,validSession,validPages,validProfile,validWordlist,validPlan} from '../src/core.js';
-import {analysePages,checkWork,explainFeedback,wordsFromPhoto,isImage,HttpError} from './analyse.js';
+import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSession,validPages,validProfile,validWordlist,validPlan,validPaper} from '../src/core.js';
+import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.6.0';
+export const APP_VERSION='0.7.0';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
 const MODULE_META=['title','subject','schoolYear','period','chapter','method','deletedAt'];
-const KINDS=['module','document','attempt','draft','wordlist','plan'];
+const KINDS=['module','document','attempt','draft','wordlist','plan','paper'];
 const DOCUMENT_META=['name','subject','schoolYear','period','chapter','method','deletedAt'];
 const json=(o,status=200,headers={})=>new Response(JSON.stringify(o),{status,headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers}});
 const fail=(status,message)=>{throw new HttpError(status,message);};
@@ -51,8 +51,8 @@ async function deletePrefix(env,prefix){let cursor;do{const list=await env.FILES
 async function state(env,user){
  const children=(await q(env,"SELECT id,name,login,profile FROM users WHERE family_id=? AND role='child' ORDER BY created",user.family).all()).results.filter(r=>user.role==='parent'||r.id===user.id).map(profileOut);
  const own=user.role==='parent'?'':' AND owner=?',args=user.role==='parent'?[user.family]:[user.family,user.id];
- const rows=[...(await q(env,"SELECT kind,id,data,rev FROM items WHERE family_id=? AND kind IN ('module','document','wordlist')",user.family).all()).results,...(await q(env,`SELECT kind,id,data,rev FROM items WHERE family_id=? AND kind IN ('attempt','draft','plan')${own}`,...args).all()).results];
- const out={version:1,profiles:children,modules:[],documents:[],attempts:[],wordlists:[],plans:[],drafts:{},revs:{}};
+ const rows=[...(await q(env,"SELECT kind,id,data,rev FROM items WHERE family_id=? AND kind IN ('module','document','wordlist')",user.family).all()).results,...(await q(env,`SELECT kind,id,data,rev FROM items WHERE family_id=? AND kind IN ('attempt','draft','plan','paper')${own}`,...args).all()).results];
+ const out={version:1,profiles:children,modules:[],documents:[],attempts:[],wordlists:[],plans:[],papers:[],drafts:{},revs:{}};
  for(const r of rows){const data=JSON.parse(r.data);out.revs[r.kind+':'+r.id]=r.rev;if(r.kind==='draft')out.drafts[r.id]=data;else out[r.kind+'s'].push(data);}
  out.attempts.sort((a,b)=>a.created-b.created);out.modules.sort((a,b)=>(a.created||0)-(b.created||0));out.wordlists.sort((a,b)=>(a.created||0)-(b.created||0));out.plans.sort((a,b)=>a.date<b.date?-1:1);
  const used=await q(env,'SELECT analyses,checks FROM usage WHERE family_id=? AND month=?',user.family,month()).first();
@@ -79,6 +79,8 @@ async function putItem(env,user,kind,id,input){
  }else if(kind==='wordlist'){
   // Children may make and edit word lists too; the list belongs to the whole family.
   data={...data,id,createdBy:existing?.data.createdBy||user.id,created:existing?.data.created||Date.now()};if(!validWordlist(data))fail(400,'Ongeldige woordenlijst.');
+ }else if(kind==='paper'){
+  data={...data,id};if(!validPaper(data))fail(400,'Ongeldig papieren proefwerk.');await childOf(env,user,data.profile);if(existing&&existing.owner!==data.profile)fail(400,'Een proefwerk blijft bij dezelfde leerling.');owner=data.profile;
  }else if(kind==='plan'){
   data={...data,id};if(!validPlan(data))fail(400,'Ongeldige planning.');await childOf(env,user,data.profile);if(existing&&existing.owner!==data.profile)fail(400,'Een planning blijft bij dezelfde leerling.');owner=data.profile;
  }else fail(404,'Onbekend onderdeel.');
@@ -88,7 +90,7 @@ async function putItem(env,user,kind,id,input){
 async function deleteItem(env,user,kind,id){
  const existing=await getItem(env,user.family,kind,id);if(!existing)return {ok:true};
  if(kind==='draft')await childOf(env,user,id);
- else if(kind==='plan')await childOf(env,user,existing.owner);
+ else if(kind==='plan'||kind==='paper')await childOf(env,user,existing.owner);
  else if(kind==='wordlist'){if(user.role==='child'&&existing.data.createdBy!==user.id)fail(403,'Alleen een ouder of wie de lijst maakte kan hem verwijderen.');await audit(env,user,'deleted-wordlist',id);}
  else{parentOnly(user);
   if(kind==='document'){const used=await q(env,"SELECT 1 FROM items WHERE family_id=? AND kind IN ('module','attempt','draft') AND instr(data,?)>0 LIMIT 1",user.family,`"source":"${id}"`).first();if(used)fail(409,'Deze bron hoort nog bij leerstof of een toetsresultaat. Bewaar hem voor controle.');await deletePrefix(env,filesPrefix(user.family,id));}
@@ -128,12 +130,30 @@ async function analyse(env,user,input){
 }
 
 // Photo grading, explanation feedback and word lists from a photo: same consent as analysis, with their own monthly limit.
-async function aiCheck(env,user,run){
+async function aiCheck(env,user,run,counter='checks'){
+ if(counter==='analyses')return aiAnalysis(env,user,run);
  if(!user.aiConsent)fail(403,user.role==='parent'?'Geef eerst toestemming voor AI bij Gezin & instellingen.':'Een ouder moet eerst toestemming geven voor AI (Gezin & instellingen).');
  const used=await q(env,'SELECT checks FROM usage WHERE family_id=? AND month=?',user.family,month()).first(),max=limit(env,'AI_CHECK_LIMIT',300);
  if((used?.checks||0)>=max)fail(429,`Jullie maandlimiet van ${max} AI-controles is bereikt. Volgende maand kan het weer.`);
  const record=u=>q(env,'INSERT INTO usage(family_id,month,analyses,input_tokens,output_tokens,checks) VALUES(?,?,0,?,?,1) ON CONFLICT(family_id,month) DO UPDATE SET checks=checks+1,input_tokens=input_tokens+excluded.input_tokens,output_tokens=output_tokens+excluded.output_tokens',user.family,month(),u?.input||0,u?.output||0).run();
  try{const {result,usage}=await run();await record(usage);return result;}catch(e){if(e.usage)await record(e.usage);throw e;}
+}
+// The book page(s) a chapter or question cites, so a check is compared with the book itself.
+async function citedPages(env,user,cite){if(!cite||cite.source==='voorbeeld'||!(await getItem(env,user.family,'document',cite.source)))return [];const pages=await documentPages(env,user,cite.source);return pages.filter(p=>p.page===cite.page);}
+// A paper test is a big job (several photos, all questions), so it counts as an analysis.
+async function aiAnalysis(env,user,run){
+ if(!user.aiConsent)fail(403,user.role==='parent'?'Geef eerst toestemming voor AI bij Gezin & instellingen.':'Een ouder moet eerst toestemming geven voor AI (Gezin & instellingen).');
+ const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first(),max=limit(env,'AI_MONTHLY_LIMIT',30);
+ if((used?.analyses||0)>=max)fail(429,`Jullie maandlimiet van ${max} analyses is bereikt. Volgende maand kan het weer.`);
+ const record=u=>q(env,'INSERT INTO usage(family_id,month,analyses,input_tokens,output_tokens) VALUES(?,?,1,?,?) ON CONFLICT(family_id,month) DO UPDATE SET analyses=analyses+1,input_tokens=input_tokens+excluded.input_tokens,output_tokens=output_tokens+excluded.output_tokens',user.family,month(),u?.input||0,u?.output||0).run();
+ try{const {result,usage}=await run();await record(usage);return result;}catch(e){if(e.usage)await record(e.usage);throw e;}
+}
+async function gradePaperRoute(env,user,input){
+ const paper=isId(input.paper)&&await getItem(env,user.family,'paper',input.paper);if(!paper)fail(404,'Dit proefwerk is niet gevonden.');await childOf(env,user,paper.owner);
+ const images=input.images;if(!Array.isArray(images)||!images.length||images.length>8||!images.every(isImage))fail(400,'Upload 1 tot 8 foto’s (JPG, PNG of WEBP) van het gemaakte proefwerk.');
+ const m=await getItem(env,user.family,'module',paper.data.module),methods=(m?.data.chapters||[]).map(c=>c.method).filter(Boolean);
+ const result=await aiCheck(env,user,()=>gradePaper(env,{questions:paper.data.questions,images,methods,level:m?.data.level}),'analyses');
+ await audit(env,user,'paper-graded',paper.data.code);return {result};
 }
 async function moduleQuestion(env,user,moduleId,questionId){
  const m=isId(moduleId)&&await getItem(env,user.family,'module',moduleId);if(!m)fail(404,'Leerstof niet gevonden.');
@@ -143,17 +163,21 @@ async function checkWorkRoute(env,user,input){
  const {module,question}=await moduleQuestion(env,user,input.module,input.question);
  if(input.image&&!isImage(input.image))fail(400,'Gebruik een foto (JPG, PNG of WEBP) van maximaal 6 MB.');
  if(!input.image&&!String(input.answer||'').trim()&&!String(input.steps||'').trim())fail(400,'Maak een foto van je uitwerking of typ je antwoord.');
- return {result:await aiCheck(env,user,()=>checkWork(env,{question,answer:input.answer,steps:input.steps,image:input.image,level:module.level}))};
+ const chapter=module.chapters[Number.isInteger(question.chapter)?question.chapter:0]||module.chapters[0],source=await citedPages(env,user,question.cite);
+ return {result:await aiCheck(env,user,()=>checkWork(env,{question,answer:input.answer,steps:input.steps,image:input.image,level:module.level,method:chapter?.method,source}))};
 }
 async function explainRoute(env,user,input){
  const m=isId(input.module)&&await getItem(env,user.family,'module',input.module);if(!m)fail(404,'Leerstof niet gevonden.');
  const chapter=m.data.chapters[Number(input.chapter)],term=chapter?.terms.find(t=>t.term===input.term);if(!term)fail(404,'Begrip niet gevonden.');
  const text=String(input.text||'').trim();if(text.length<10)fail(400,'Schrijf je uitleg in een paar zinnen.');if(text.length>2000)fail(400,'Houd je uitleg korter dan 2000 tekens.');
- return {result:await aiCheck(env,user,()=>explainFeedback(env,{term:term.term,definition:term.definition,summary:chapter.summary,quote:chapter.cite.quote,text,level:m.data.level}))};
+ const source=await citedPages(env,user,chapter.cite);
+ return {result:await aiCheck(env,user,()=>explainFeedback(env,{term:term.term,definition:term.definition,summary:chapter.summary,quote:chapter.cite.quote,method:chapter.method,text,level:m.data.level,source}))};
 }
 async function wordsRoute(env,user,input){
- if(!isImage(input.image))fail(400,'Gebruik een foto (JPG, PNG of WEBP) van maximaal 6 MB.');
- return {result:await aiCheck(env,user,()=>wordsFromPhoto(env,{image:input.image}))};
+ const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>5||!ids.every(isId))fail(400,'Kies de bron (foto of bestand uit je boek) met de woordjes.');
+ const pages=[];for(const id of ids){const d=await getItem(env,user.family,'document',id);if(!d||d.data.deletedAt)fail(404,'Een gekozen bron bestaat niet meer.');pages.push(...await documentPages(env,user,id));}
+ if(pages.length>10)fail(400,'Kies maximaal 10 pagina’s met woordjes tegelijk.');
+ const result=await aiCheck(env,user,()=>wordsFromSource(env,{pages}));return {result:{...result,documents:ids}};
 }
 
 // Meldingen: ideas, questions and problems from inside the app, answered in Beheer.
@@ -188,7 +212,6 @@ async function signup(env,request,input){
   q(env,"INSERT INTO users(id,family_id,role,login,name,pw_hash,recovery_hash,profile,created) VALUES(?,?,'parent',?,?,?,?,'{}',?)",parent,family,email,String(input.parentName||'Ouder').trim().slice(0,40)||'Ouder',await hashSecret(input.password),await hashSecret(code),now),
   q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",childId,family,child.name,JSON.stringify(child.profile),now+1),
   q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'module','demo',?,1,?)",family,JSON.stringify(demo),now),
-  q(env,"INSERT INTO items(family_id,kind,id,data,rev,updated) VALUES(?,'wordlist','demo-woorden',?,1,?)",family,JSON.stringify({...demoWordlist(),created:now,createdBy:parent}),now),
   ...personal?[q(env,'UPDATE invites SET used_at=?,family_id=? WHERE code=? AND used_at IS NULL',now,family,personal.code)]:[],
   q(env,'DELETE FROM access_requests WHERE email=?',email)]);
  await audit(env,{family,id:parent},'signup',personal?'uitnodiging '+personal.code:'');
@@ -232,7 +255,7 @@ async function recover(env,request,input){
 async function exportFamily(env,user){
  parentOnly(user);const s=await state(env,user);
  const documents=[];for(const d of s.documents){const original=await env.FILES.get(filesPrefix(user.family,d.id)+'original');const bytes=new Uint8Array(original?await original.arrayBuffer():[]);let data='';for(let i=0;i<bytes.length;i+=8192)data+=String.fromCharCode(...bytes.subarray(i,i+8192));documents.push({...d,data:btoa(data),pages:await documentPages(env,user,d.id)});}
- return {version:1,exported:Date.now(),app:APP_VERSION,profiles:s.profiles.map(({login,...p})=>p),modules:s.modules,documents,attempts:s.attempts,wordlists:s.wordlists,plans:s.plans,draft:null};
+ return {version:1,exported:Date.now(),app:APP_VERSION,profiles:s.profiles.map(({login,...p})=>p),modules:s.modules,documents,attempts:s.attempts,wordlists:s.wordlists,plans:s.plans,papers:s.papers,draft:null};
 }
 // Imports a decrypted backup from the device-only versions (0.1/0.2). Profiles become new children; documents follow via /api/documents.
 async function importFamily(env,user,input){
@@ -341,7 +364,8 @@ async function route(request,env){
  if(path==='/api/analyse'&&method==='POST')return json(await analyse(env,user,await body(request)));
  if(path==='/api/check-work'&&method==='POST')return json(await checkWorkRoute(env,user,await body(request,9000000)));
  if(path==='/api/explain'&&method==='POST')return json(await explainRoute(env,user,await body(request,20000)));
- if(path==='/api/words-from-photo'&&method==='POST')return json(await wordsRoute(env,user,await body(request,9000000)));
+ if(path==='/api/words-from-source'&&method==='POST')return json(await wordsRoute(env,user,await body(request)));
+ if(path==='/api/grade-paper'&&method==='POST')return json(await gradePaperRoute(env,user,await body(request,40000000)));
  if(path==='/api/feedback'&&method==='POST')return json(await sendFeedback(env,user,await body(request,20000)));
  if(path==='/api/feedback'&&method==='GET')return json(await myFeedback(env,user));
  if(path==='/api/profiles'&&method==='POST'){parentOnly(user);const count=await q(env,"SELECT count(*) AS n FROM users WHERE family_id=? AND role='child'",user.family).first();if(count.n>=12)fail(400,'Maximaal 12 leerlingen per gezin.');const c=profileIn(await body(request)),id=uid();await q(env,"INSERT INTO users(id,family_id,role,name,profile,created) VALUES(?,?,'child',?,?,?)",id,user.family,c.name,JSON.stringify(c.profile),Date.now()).run();return json({id});}

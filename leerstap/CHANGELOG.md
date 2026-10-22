@@ -1,5 +1,15 @@
 # Wijzigingen
 
+## 0.7.0 — 22 oktober 2026
+
+- **Alles uit het eigen boek.** De analyse gebruikt uitsluitend de geüploade bronnen (geen eigen kennis, geen internet) en volgt de werkwijze, notatie en termen van het boek. Per paragraaf wordt de methode van het boek vastgelegd en getoond (*Zo pakt het boek het aan*).
+- **Nakijken tegen het boek.** Foto nakijken en *Leg het uit* krijgen de geciteerde bladzijde zelf mee (tekst of scan) en de methode. Een goed antwoord met een andere methode krijgt de punten volgens het puntenmodel, met uitleg waarom het klopt en hoe het boek het doet; een toevallig goed antwoord met een onjuiste aanpak wordt ook uitgelegd. Na een automatisch goed antwoord kun je je aanpak laten checken. *Leg het uit* meldt wat niet in het boek staat.
+- **Woordjes alleen uit de eigen bron.** De Franse voorbeeldlijst is weg. Woordjes haal je uit een geüploade bron of een foto van de bladzijde (die wordt dan bij je leerstof bewaard); elk paar moet letterlijk in de bron staan, anders wordt het weggelaten. Bij een foto vraagt Leerstap je te vergelijken met het boek. Zelf overtypen kan nog steeds. Een lijst laat zien uit welke bron hij komt.
+- **Papieren proefwerk.** *Proefwerk printen* maakt een PDF met een code. Na het maken upload je foto’s of een scan; de AI kijkt elke vraag na met het puntenmodel en de methode uit het boek. Je krijgt een cijfer, een korte samenvatting van de nakijker, terugkoppeling per paragraaf en per soort vraag (bijvoorbeeld welke soort sommen goed gaan en welke meer oefening nodig hebben), met een knop om precies dat te oefenen. Twijfelgevallen staan klaar voor een ouder. Telt als één analyse.
+- **Kiezen wat je leert.** Bij oefenen, drill en proefwerk zet je per paragraaf én per onderwerp aan of uit, en kun je overslaan wat je al beheerst.
+- **Advies voor vandaag** op de startpagina: maximaal drie concrete tips met de reden erbij (toets in aantocht, zwakste onderwerp, herhaling, nieuwe leerstof, woordjes), elk met een knop om te beginnen.
+- Migratie `0005_papier.sql` (tabel `items` zonder vaste lijst met soorten; de server controleert elk onderdeel).
+
 ## 0.6.0 — 22 oktober 2026
 
 Een complete leerapp voor de leerling.

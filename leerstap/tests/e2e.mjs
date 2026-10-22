@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import {demoModule,demoWordlist,wordAlternatives} from '../src/core.js';
+import {demoModule} from '../src/core.js';
 
 const shots=process.env.E2E_SHOTS||fs.mkdtempSync(path.join(os.tmpdir(),'leerstap-shots-'));fs.mkdirSync(shots,{recursive:true});
 const data=fs.mkdtempSync(path.join(os.tmpdir(),'leerstap-e2e-'));
@@ -17,10 +17,12 @@ const TEXT='Een vierkantswortel is de niet-negatieve waarde die in het kwadraat 
 // Stand-in for the OpenAI Responses API that only quotes what was uploaded, like a well-behaved model.
 const ai=http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{
  const name=JSON.parse(body).text.format.name,reply=o=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'completed',usage:{input_tokens:300,output_tokens:100},output:[{content:[{type:'output_text',text:JSON.stringify(o)}]}]}));};
- if(name==='nakijken')return reply({points:3,confidence:'middel',readable:true,feedback:'Je rekent beide kanten goed uit. Schrijf de conclusie nog iets duidelijker op.',steps:[{text:'√25 = 5',ok:true},{text:'3 + 4 = 7',ok:true}]});
- if(name==='uitleg')return reply({verdict:'bijna',good:['Je noemt het kwadraat.'],missing:['De uitkomst is nooit negatief.'],tip:'Noem ook dat een wortel niet-negatief is.'});
+ if(name==='nakijken')return reply({points:3,confidence:'middel',readable:true,feedback:'Je rekent beide kanten goed uit. Schrijf de conclusie nog iets duidelijker op.',methodMatch:'zelfde methode',methodNote:'',steps:[{text:'√25 = 5',ok:true},{text:'3 + 4 = 7',ok:true}]});
+ if(name==='woordjes'){const pages=JSON.parse(body).input[0].content.filter(c=>c.type==='input_text').map(c=>c.text).join('\n');assert.match(pages,/le chat/);return reply({langA:'Nederlands',langB:'Frans',pairs:[{a:'de kat',b:'le chat',page:1},{a:'de hond',b:'le chien',page:1},{a:'het huis',b:'la maison',page:1},{a:'de muis',b:'la souris',page:1}],warnings:[]});}
+ if(name==='proefwerk'){const qs=JSON.parse(JSON.parse(body).input[0].content[0].text).vragen;return reply({readable:true,overall:'Wortels uitrekenen gaat goed. Let op bij het combineren van wortels.',answers:qs.map(q=>({number:q.nummer,answerSeen:q.nummer<=2?q.modelantwoord:'1',points:q.nummer<=2?q.maximumPunten:0,confidence:'hoog',feedback:q.nummer<=2?'Goed.':'Dit klopt niet. Reken eerst elke wortel apart uit.',methodMatch:'zelfde methode',methodNote:''}))});}
+ if(name==='uitleg')return reply({verdict:'bijna',good:['Je noemt het kwadraat.'],missing:['De uitkomst is nooit negatief.'],beyondBook:[],tip:'Noem ook dat een wortel niet-negatief is.'});
  const input=JSON.parse(JSON.parse(body).input[0].content[0].text),page=input.pages[0],cite={source:page.id,page:page.page,quote:page.text.slice(0,47)};
- const q=(prompt,answer,level)=>({prompt,kind:'numeric',answer,explanation:`Het antwoord is ${answer}.`,hint:'Welk getal keer zichzelf geeft het getal onder de wortel?',goal:'Wortels berekenen',rubric:'2 punten voor de juiste uitkomst.',points:2,level,chapter:level===1?0:1,cite});
+ const q=(prompt,answer,level)=>({prompt,kind:'numeric',answer,explanation:`Het antwoord is ${answer}.`,hint:'Welk getal keer zichzelf geeft het getal onder de wortel?',goal:['Wortels berekenen','Optellen met wortels','Vermenigvuldigen met wortels'][level-1],rubric:'2 punten voor de juiste uitkomst.',points:2,level,chapter:level===1?0:1,cite});
  const module={title:'Wortels uit mijn boek',chapters:[{title:'Wortels',summary:'Een wortel is het niet-negatieve getal dat in het kwadraat het getal onder het wortelteken geeft.',goals:['Wortels berekenen'],terms:[{term:'Vierkantswortel',definition:'Niet-negatieve waarde waarvan het kwadraat het getal is.'}],cite},{title:'Rekenen met wortels',summary:'Met wortels kun je rekenen: eerst de wortels uitrekenen, dan verder.',goals:['Rekenen met wortels'],terms:[],cite}],questions:[q('Bereken √49.','7',1),q('Bereken √121.','11',1),q('Bereken √49 + √121.','18',2),q('Bereken 2 × √49.','14',2),q('Bereken √(49 × 121).','77',3)],warnings:[]};
  res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'completed',usage:{input_tokens:900,output_tokens:700},output:[{content:[{type:'output_text',text:JSON.stringify(module)}]}]}));});});
 await new Promise(r=>ai.listen(0,'127.0.0.1',r));
@@ -64,10 +66,6 @@ try{
   const id=await parent.getAttribute('[data-action="child-login"]','data-id');
   await parent.click(`details:has(#child-login-${id}) summary`);await parent.fill(`#child-login-${id}`,'sam');await parent.fill(`#child-password-${id}`,'sam-wachtwoord');
   await click(parent,'child-login');await parent.waitForSelector('text=Logt zelf in als');await shot(parent,'06-instellingen');
- });
- await step('Printbare PDF’s van het proefwerk',async()=>{
-  await parent.click('[data-action="nav"][data-route="test"]');
-  for(const answers of ['false','true']){const [download]=await Promise.all([parent.waitForEvent('download'),parent.click(`[data-action="pdf"][data-answers="${answers}"]`)]);const file=await download.path();assert.equal(fs.readFileSync(file).subarray(0,4).toString(),'%PDF');}
  });
  await step('Ouder logt uit',async()=>{await click(parent,'lock');await parent.waitForSelector('#login-form');});
 
@@ -137,7 +135,8 @@ try{
  await step('Drill op de voorbeeldles tot alles beheerst, met AI-nakijken van een foto en zelf nakijken',async()=>{
   const demo=demoModule(),answer=p=>demo.questions.find(q=>q.prompt===p);
   await parent.click('[data-action="nav"][data-route="practice"]');await parent.selectOption('#module-select',{label:'Wortels zonder twijfel · Wiskunde'});
-  await click(parent,'start','[data-mode="drill"]');await parent.waitForSelector('text=van 9 beheerst');
+  await parent.waitForSelector('fieldset.chapters:has-text("Wat wil je leren?")');await parent.uncheck('input[name="goal"][value="Haakjes"]');
+  await click(parent,'start','[data-mode="drill"]');await parent.waitForSelector('text=van 8 beheerst');assert.equal(await parent.$('text=Bereken √(36 + 64).'),null);
   let wrongOnce=false;
   for(let turn=0;turn<30;turn++){
    const q=answer(await prompt(parent));
@@ -149,18 +148,40 @@ try{
   }
   await parent.waitForSelector('text=Alles beheerst!');await shot(parent,'16-drill-klaar');await click(parent,'finish');await parent.waitForSelector('.pill:has-text("Drill")');
  });
- await step('Woordjes overhoren met hulp bij bijna-goed, en een eigen lijst maken',async()=>{
-  const list=demoWordlist(),map=Object.fromEntries(list.pairs.map(p=>[p.a,wordAlternatives(p.b)[0]]));
-  await parent.click('[data-action="nav"][data-route="words"]');await parent.waitForSelector('h3:has-text("Frans · voorbeeldlijst")');
-  await click(parent,'words-start','[data-id="demo-woorden"]');await parent.waitForSelector('text=van 8 beheerst');
+ await step('Woordjes alleen uit de eigen bron: verzonnen woorden worden geweigerd; overhoren met hulp bij bijna-goed',async()=>{
+  await parent.click('[data-action="nav"][data-route="library"]');await parent.setInputFiles('#files',{name:'frans-h2-woordjes.txt',mimeType:'text/plain',buffer:Buffer.from('Woordenlijst Frans H2\nde kat - le chat\nde hond - le chien\nhet huis - la maison')});
+  await parent.waitForSelector('.list-item:has-text("frans-h2-woordjes.txt")');await saved(parent);
+  await parent.click('[data-action="nav"][data-route="words"]');await parent.waitForSelector('text=Nog geen woordenlijsten');
+  await parent.check('input[name="wl-doc"]:near(:text("frans-h2-woordjes.txt"))');await click(parent,'words-source');
+  await parent.waitForSelector('#toast:has-text("3 woordjes gevonden")');await parent.waitForSelector('#toast:has-text("niet letterlijk in de bron")');
+  const pairs=await parent.inputValue('#wl-pairs');assert.ok(!pairs.includes('souris'),'a word that is not in the book is not added');assert.equal(pairs.split('\n').length,3);
+  assert.equal(await parent.inputValue('#wl-b'),'Frans');await parent.fill('#wl-title','Frans H2');await shot(parent,'17-woordjes-uit-bron');await click(parent,'words-save');
+  await parent.waitForSelector('h3:has-text("Frans H2")');await parent.waitForSelector('text=Uit je boek: frans-h2-woordjes.txt');
+  const map={'de kat':'le chat','de hond':'le chien','het huis':'la maison'};const id=await parent.getAttribute('[data-action="words-start"]','data-id');
+  await click(parent,'words-start',`[data-id="${id}"]`);await parent.waitForSelector('text=van 3 beheerst');
   let first=true;
-  for(let turn=0;turn<20;turn++){const p=await prompt(parent),right=map[p];assert.ok(right,'unknown prompt '+p);
-   const almost=first&&/^(le|la) /.test(right);await parent.fill('#answer',almost?right.replace(/^(le|la) /,''):right);await click(parent,'check');
-   if(almost){await parent.waitForSelector('.feedback:has-text("Bijna! Het lidwoord hoort erbij.")');await shot(parent,'17-woordjes-bijna');first=false;}else await parent.waitForSelector('.feedback:has-text("Goed gedaan")');
+  for(let turn=0;turn<12;turn++){const right=map[await prompt(parent)];assert.ok(right);
+   await parent.fill('#answer',first?right.replace(/^(le|la) /,''):right);await click(parent,'check');
+   if(first){await parent.waitForSelector('.feedback:has-text("Bijna! Het lidwoord hoort erbij.")');await shot(parent,'18-woordjes-bijna');first=false;}else await parent.waitForSelector('.feedback:has-text("Goed gedaan")');
    await parent.waitForSelector('[data-action="next"],[data-action="finish"]');if(await parent.$('[data-action="finish"]'))break;await click(parent,'next');await parent.waitForSelector('[data-action="check"]');}
-  assert.equal(first,false,'an article mistake was tried');await click(parent,'finish');await parent.waitForSelector('.pill:has-text("Woordjes")');
-  await parent.click('[data-action="nav"][data-route="words"]');await parent.fill('#wl-title','Engels unit 1');await parent.selectOption('#wl-b','Engels');
-  await parent.fill('#wl-pairs','de appel = the apple\nlopen = (to) walk');await click(parent,'words-save');await parent.waitForSelector('h3:has-text("Engels unit 1")');await shot(parent,'18-woordjes');
+  await click(parent,'finish');await parent.waitForSelector('.pill:has-text("Woordjes")');
+ });
+ await step('Papieren proefwerk: printen met code, foto uploaden, nakijken met cijfer en terugkoppeling per paragraaf en soort som',async()=>{
+  await parent.click('[data-action="nav"][data-route="test"]');await parent.selectOption('#module-select',{label:'Wortels uit mijn boek · Wiskunde'});await parent.selectOption('#count','0');
+  const [download]=await Promise.all([parent.waitForEvent('download'),click(parent,'paper-print')]);const pdf=fs.readFileSync(await download.path());assert.equal(pdf.subarray(0,4).toString(),'%PDF');
+  const code=(await parent.textContent('#toast')).match(/[A-Z2-9]{4}-[A-Z2-9]{4}/)[0];assert.match(download.suggestedFilename(),new RegExp(code));
+  await parent.waitForSelector(`.list-item:has-text("code ${code}") .pill:has-text("Nog nakijken")`);
+  const [answers]=await Promise.all([parent.waitForEvent('download'),parent.click(`.list-item:has-text("code ${code}") [data-action="paper-pdf"][data-answers="true"]`)]);assert.match(answers.suggestedFilename(),/antwoorden/);
+  await parent.setInputFiles(`.list-item:has-text("code ${code}") input[type=file]`,{name:'blad1.png',mimeType:'image/png',buffer:PNG});await shot(parent,'19-papier-uploaden');
+  await parent.click(`.list-item:has-text("code ${code}") [data-action="paper-grade"]`);await parent.waitForSelector('.pill:has-text("Op papier")');
+  await parent.waitForSelector('.notice:has-text("Nakijker: Wortels uitrekenen gaat goed")');await parent.waitForSelector('h3:has-text("Per soort vraag")');
+  await parent.waitForSelector('text=Waar meer oefening nodig is');await parent.waitForSelector('[data-action="drill-goal"][data-goal="Vermenigvuldigen met wortels"]');await shot(parent,'20-papier-nagekeken');
+  await parent.click('[data-action="nav"][data-route="test"]');await parent.waitForSelector(`.list-item:has-text("code ${code}") .pill:has-text("Nagekeken")`);
+ });
+ await step('Advies op de startpagina met de reden erbij',async()=>{
+  await parent.click('[data-action="nav"][data-route="home"]');await parent.waitForSelector('.advice:has-text("ADVIES VOOR SAM")');
+  const text=await parent.textContent('.advice');assert.match(text,/Oefen „(Optellen|Vermenigvuldigen) met wortels”/);assert.match(text,/van de \d+ punten/);await shot(parent,'21-advies');
+  await parent.click('.advice [data-action="drill-goal"]');await parent.waitForSelector('.eyebrow:has-text("met wortels")');await parent.waitForSelector('text=0 van 2 beheerst');
  });
  await step('Proefwerk op maat met paragrafen en terugkoppeling: waar meer op leren en waarom',async()=>{
   const answers={'Bereken √49.':'7','Bereken √121.':'11','Bereken √49 + √121.':'18','Bereken 2 × √49.':'14','Bereken √(49 × 121).':'77'};
@@ -175,14 +196,15 @@ try{
  await step('Toetsplanner: plannen, taak van vandaag op de startpagina, afvinken',async()=>{
   const d=new Date(Date.now()+7*86400000),date=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   await parent.click('[data-action="nav"][data-route="planner"]');await parent.fill('#plan-title','Toets wiskunde H3');await parent.fill('#plan-date',date);
-  await parent.check('input[name="plan-item"][value="module:demo"]');await parent.check('input[name="plan-item"][value="wordlist:demo-woorden"]');await click(parent,'plan-create');
+  await parent.check('input[name="plan-item"][value="module:demo"]');await parent.check('input[name="plan-item"]:near(:text("Frans H2"))');await click(parent,'plan-create');
   await parent.waitForSelector('h2:has-text("Toets wiskunde H3")');await parent.waitForSelector('ol.days li.today');assert.equal(await parent.$$eval('ol.days li',l=>l.length),7);await shot(parent,'21-planner');
   // Sam already practised this material today, so today's task counts as done.
   await parent.waitForSelector('ol.days li.today.done');
   await parent.click('[data-action="nav"][data-route="home"]');await parent.waitForSelector('.card:has-text("VANDAAG") :text("Toets wiskunde H3")');await parent.waitForSelector('.card:has-text("VANDAAG") :text("✓ Gedaan")');await parent.waitForSelector('.week span.on');await shot(parent,'22-start-vandaag');
   // A plan for a material not practised today can be ticked off by hand.
-  await parent.click('[data-action="nav"][data-route="planner"]');await parent.fill('#plan-title','Overhoring Engels');await parent.fill('#plan-date',date);await parent.check('input[name="plan-item"]:near(:text("Engels unit 1"))');await click(parent,'plan-create');
-  await parent.waitForSelector('section:has(h2:has-text("Overhoring Engels")) [data-action="plan-toggle"]');await parent.click('section:has(h2:has-text("Overhoring Engels")) [data-action="plan-toggle"]');await parent.waitForSelector('section:has(h2:has-text("Overhoring Engels")) ol.days li.today.done');
+  await parent.click('[data-action="nav"][data-route="words"]');await parent.fill('#wl-title','Engels unit 1');await parent.selectOption('#wl-b','Engels');await parent.fill('#wl-pairs','de appel = the apple\nlopen = (to) walk');await click(parent,'words-save');await parent.waitForSelector('h3:has-text("Engels unit 1")');await parent.waitForSelector('text=Zelf overgetypt');
+  await parent.click('[data-action="nav"][data-route="planner"]');await parent.fill('#plan-title','Toets wortels H4');await parent.fill('#plan-date',date);await parent.check('input[name="plan-item"]:near(:text("Engels unit 1"))');await click(parent,'plan-create');
+  await parent.waitForSelector('section:has(h2:has-text("Toets wortels H4")) [data-action="plan-toggle"]');await parent.click('section:has(h2:has-text("Toets wortels H4")) [data-action="plan-toggle"]');await parent.waitForSelector('section:has(h2:has-text("Toets wortels H4")) ol.days li.today.done');
  });
  await step('Leg het uit: feedback op een eigen uitleg',async()=>{
   await parent.click('[data-action="nav"][data-route="home"]');await parent.click('[data-action="module"][data-id="demo"]');await parent.click('details.explain summary');

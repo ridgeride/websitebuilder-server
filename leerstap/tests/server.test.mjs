@@ -252,7 +252,7 @@ test('Access requests and invitations bound to an e-mail address',async()=>{
 
 test('Word lists and plans: children may make their own, see only their own plans, and cannot touch others',async()=>{
  const env=localEnv();const {b:parent,state}=await family(env,'p@x.nl');const sam=state.profiles[0].id;
- assert.equal(state.wordlists[0].id,'demo-woorden','every family starts with a sample word list');
+ assert.deepEqual(state.wordlists,[],'no ready-made word lists: words come from the book');
  const noor=(await parent.post('/api/profiles',{name:'Noor',schoolType:'havo',year:1,subjects:['Frans']})).body.id;
  await parent.post(`/api/profiles/${sam}/login`,{login:'sam',password:'sam-wachtwoord'});await parent.post(`/api/profiles/${noor}/login`,{login:'noor',password:'noor-wachtwoord'});
  const kid=browser(env);await kid.post('/api/login',{login:'sam',password:'sam-wachtwoord'});
@@ -264,7 +264,7 @@ test('Word lists and plans: children may make their own, see only their own plan
  assert.equal((await kid.put('/api/items/plan/plan2',{data:plan(noor,'plan2')})).status,403,'not for a brother or sister');
  assert.equal((await parent.put('/api/items/plan/plan3',{data:plan(noor,'plan3')})).status,200,'a parent plans for any child');
  assert.equal((await parent.put('/api/items/plan/plan4',{data:{...plan(noor,'plan4'),date:'2026-10-01'}})).status,400);
- let s=(await kid.get('/api/state')).body;assert.deepEqual(s.plans.map(p=>p.id),['plan1']);assert.equal(s.wordlists.length,2);
+ let s=(await kid.get('/api/state')).body;assert.deepEqual(s.plans.map(p=>p.id),['plan1']);assert.equal(s.wordlists.length,1);
  assert.equal((await parent.get('/api/state')).body.plans.length,2);
  const noorKid=browser(env);await noorKid.post('/api/login',{login:'noor',password:'noor-wachtwoord'});
  assert.equal((await noorKid.del('/api/items/plan/plan1')).status,403);assert.equal((await noorKid.del('/api/items/wordlist/l1')).status,403,'only the maker or a parent deletes a list');
@@ -274,7 +274,7 @@ test('Word lists and plans: children may make their own, see only their own plan
  assert.equal((await kid.put('/api/items/draft/'+sam,{data:{profile:sam,module:'l1',title:'Frans H1',mode:'drill',kind:'words',pool:[q],drill:{'p1-ab':{streak:0,wrong:0,asked:0}},questions:[q],answers:[],results:[]}})).status,200);
  assert.equal((await kid.put('/api/items/attempt/w1',{data:{id:'w1',profile:sam,module:'l1',title:'Frans H1',mode:'drill',kind:'words',questions:[q],answers:[{answer:'la maison',steps:''}],results:[{points:1,pending:false,confidence:'hoog',feedback:'ok',category:'Goed'}],review:{},created:Date.now()}})).status,200);
  // Backups carry word lists and plans.
- const exp=(await parent.get('/api/export')).body;assert.ok(exp.wordlists.some(w=>w.id==='demo-woorden'));assert.deepEqual(exp.plans.map(p=>p.id),['plan3']);
+ const exp=(await parent.get('/api/export')).body;assert.ok(Array.isArray(exp.wordlists));assert.deepEqual(exp.plans.map(p=>p.id),['plan3']);
 });
 
 test('Meldingen: anyone signed in can send an idea, question or problem; the administrator answers it',async()=>{
@@ -297,30 +297,62 @@ test('Meldingen: anyone signed in can send an idea, question or problem; the adm
  assert.equal((await user.post('/api/feedback',{kind:'idee',message:'nog een'})).status,429);
 });
 
-test('AI checks: photo grading, explanation feedback and words from a photo need consent, use the stored question and count separately',async()=>{
- const env=localEnv({OPENAI_API_KEY:'test',AI_CHECK_LIMIT:'3'});const {b,state}=await family(env,'p@x.nl');
+test('AI checks use the book: photo grading and explanations get the cited book page and method; words only from the uploaded source',async()=>{
+ const env=localEnv({OPENAI_API_KEY:'test',AI_CHECK_LIMIT:'3'});const {b}=await family(env,'p@x.nl');
+ const book='Een vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal onder het wortelteken oplevert. Methode: schrijf eerst het getal als kwadraat.';
+ const words='Woordenlijst H2\nhet huis - la maison\nde kat - le chat\nde hond - le chien';
  const old=globalThis.fetch;const sent=[];
- globalThis.fetch=async(url,o)=>{const body=JSON.parse(o.body);sent.push(body);const name=body.text.format.name;
-  const out={nakijken:{points:7,confidence:'hoog',readable:true,feedback:'Goede aanpak.',steps:[{text:'√81 = 9',ok:true}]},uitleg:{verdict:'bijna',good:['Je noemt het kwadraat'],missing:['niet-negatief'],tip:'Noem ook dat de uitkomst nooit negatief is.'},woordjes:{langA:'Nederlands',langB:'Frans',pairs:[{a:'het huis',b:'la maison'},{a:' ',b:'leeg'}],warnings:[]}}[name];
+ globalThis.fetch=async(url,o)=>{const body=JSON.parse(o.body);sent.push(body);const name=body.text.format.name;let out;
+  if(name==='leerstof'){out=demoModule();const doc=JSON.parse(body.input[0].content[0].text).pages[0];for(const x of [...out.chapters,...out.questions])x.cite={source:doc.id,page:1,quote:doc.text.slice(0,40)};out.chapters[0].method='Schrijf eerst het getal als kwadraat.';}
+  else out={nakijken:{points:2,confidence:'hoog',readable:true,feedback:'Goed antwoord.',methodMatch:'andere methode, wel juist',methodNote:'Je rekende met de rekenmachine; het boek schrijft 81 eerst als 9². Allebei juist.',steps:[{text:'√81 = 9',ok:true}]},uitleg:{verdict:'bijna',good:['Je noemt het kwadraat'],missing:['niet-negatief'],beyondBook:['Je noemt complexe getallen'],tip:'Kijk in je boek bij de definitie.'},woordjes:{langA:'Nederlands',langB:'Frans',pairs:[{a:'het huis',b:'la maison',page:1},{a:'de kat',b:'le chat',page:1},{a:'de muis',b:'la souris',page:1}],warnings:[]}}[name];
   return Response.json({status:'completed',usage:{input_tokens:100,output_tokens:50},output:[{content:[{type:'output_text',text:JSON.stringify(out)}]}]});};
  try{
   const photo='data:image/jpeg;base64,'+Buffer.from('foto').toString('base64');
   assert.equal((await b.post('/api/check-work',{module:'demo',question:'demo-0',image:photo})).status,403,'consent first');
   await b.post('/api/family/consent',{consent:true});
-  assert.equal((await b.post('/api/check-work',{module:'demo',question:'bestaat-niet',image:photo})).status,404);
-  assert.equal((await b.post('/api/check-work',{module:'demo',question:'demo-0',image:'data:text/html;base64,AAAA'})).status,400);
-  const r=await b.post('/api/check-work',{module:'demo',question:'demo-0',answer:'9',image:photo});assert.equal(r.status,200,JSON.stringify(r.body));
-  assert.equal(r.body.result.points,2,'never more than the question is worth');assert.equal(r.body.result.steps[0].ok,true);
-  const graded=JSON.parse(sent[0].input[0].content[0].text);assert.equal(graded.vraag,'Bereken √81.');assert.match(graded.puntenmodel,/2 punten/);assert.equal(sent[0].input[0].content[2].type,'input_image');assert.equal(sent[0].store,false);
-  assert.equal((await b.post('/api/explain',{module:'demo',chapter:0,term:'Kwadraat',text:'kort'})).status,400);
-  const e=await b.post('/api/explain',{module:'demo',chapter:0,term:'Vierkantswortel',text:'Het getal dat keer zichzelf het getal onder de wortel geeft.'});assert.equal(e.status,200);assert.equal(e.body.result.verdict,'bijna');
-  assert.match(JSON.parse(sent[1].input[0].content[0].text).definitieUitBron,/niet-negatieve/);
-  const w=await b.post('/api/words-from-photo',{image:photo});assert.equal(w.status,200);assert.deepEqual(w.body.result.pairs,[{a:'het huis',b:'la maison'}],'empty pairs are dropped');
-  assert.equal((await b.post('/api/explain',{module:'demo',chapter:0,term:'Vierkantswortel',text:'Nog een keer proberen met meer woorden.'})).status,429,'monthly limit for checks');
-  const s=(await b.get('/api/state')).body.usage;assert.equal(s.checks,3);assert.equal(s.analyses,0,'checks do not use up analyses');
-  // A child of another family cannot grade against this family's material.
-  const other=await family(env,'q@x.nl');await other.b.post('/api/family/consent',{consent:true});
-  const mod=state.modules[0].id;assert.equal((await other.b.post('/api/check-work',{module:'onbekend',question:'demo-0',answer:'9'})).status,404);assert.ok(mod);
+  const doc=(await b.post('/api/documents',textDoc(book,'boek-h1.txt'))).body.document.id;
+  const ar=await b.post('/api/analyse',{documents:[doc],subject:'Wiskunde',level:'2 havo/vwo'});assert.equal(ar.status,200,JSON.stringify(ar.body));const m=ar.body.module;assert.equal(m.chapters[0].method,'Schrijf eerst het getal als kwadraat.');
+  assert.match(sent[0].instructions,/geen eigen kennis, geen internet/);assert.match(sent[0].instructions,/werkwijze/);
+  assert.equal((await b.post('/api/check-work',{module:m.id,question:'bestaat-niet',image:photo})).status,404);
+  assert.equal((await b.post('/api/check-work',{module:m.id,question:m.questions[0].id,image:'data:text/html;base64,AAAA'})).status,400);
+  const r=await b.post('/api/check-work',{module:m.id,question:m.questions[0].id,answer:'9',image:photo});assert.equal(r.status,200,JSON.stringify(r.body));
+  assert.equal(r.body.result.methodMatch,'andere methode, wel juist');assert.match(r.body.result.methodNote,/het boek schrijft/);
+  const graded=sent[1].input[0].content;assert.equal(JSON.parse(graded[0].text).methodeUitHetBoek,'Schrijf eerst het getal als kwadraat.');
+  assert.ok(graded.some(c=>c.type==='input_text'&&c.text.startsWith('Bronpagina 1 uit het boek')&&c.text.includes('schrijf eerst het getal als kwadraat')),'the book page itself is sent');
+  assert.match(sent[1].instructions,/andere, wiskundig of inhoudelijk juiste methode/);assert.equal(sent[1].store,false);
+  const e=await b.post('/api/explain',{module:m.id,chapter:0,term:'Vierkantswortel',text:'Het getal dat keer zichzelf het getal onder de wortel geeft.'});assert.equal(e.status,200);
+  assert.deepEqual(e.body.result.beyondBook,['Je noemt complexe getallen']);assert.ok(sent[2].input[0].content.some(c=>c.text?.startsWith('Bronpagina 1')));
+  // Words come only from an uploaded source, and only if they are literally in it.
+  assert.equal((await b.post('/api/words-from-source',{documents:[]})).status,400);assert.equal((await b.post('/api/words-from-source',{documents:['onbekend']})).status,404);
+  const wdoc=(await b.post('/api/documents',textDoc(words,'frans-h2.txt'))).body.document.id;
+  const w=await b.post('/api/words-from-source',{documents:[wdoc]});assert.equal(w.status,200,JSON.stringify(w.body));
+  assert.deepEqual(w.body.result.pairs.map(p=>[p.a,p.b]),[['het huis','la maison'],['de kat','le chat']],'"de muis" is not in the book and is dropped');
+  assert.match(w.body.result.warnings.join(' '),/1 woord\(je\)s stonden niet letterlijk in de bron/);assert.deepEqual(w.body.result.documents,[wdoc]);
+  assert.match(sent[3].instructions,/Voeg nooit zelf woorden/);
+  assert.equal((await b.post('/api/explain',{module:m.id,chapter:0,term:'Vierkantswortel',text:'Nog een keer proberen met meer woorden.'})).status,429,'monthly limit for checks');
+  const s=(await b.get('/api/state')).body.usage;assert.equal(s.checks,3);assert.equal(s.analyses,1,'checks do not use up analyses');
+  // Another family cannot check against this family's material.
+  const other=await family(env,'q@x.nl');await other.b.post('/api/family/consent',{consent:true});assert.equal((await other.b.post('/api/check-work',{module:m.id,question:m.questions[0].id,answer:'9'})).status,404);
+  assert.equal((await other.b.post('/api/words-from-source',{documents:[wdoc]})).status,404);
+ }finally{globalThis.fetch=old;}
+});
+
+test('Papieren proefwerk: stored per child, graded from photos question by question, never above the maximum, counts as an analysis',async()=>{
+ const env=localEnv({OPENAI_API_KEY:'test'});const {b,state}=await family(env,'p@x.nl');const sam=state.profiles[0].id,m=demoModule();
+ const old=globalThis.fetch;let sent;globalThis.fetch=async(url,o)=>{sent=JSON.parse(o.body);return Response.json({status:'completed',usage:{input_tokens:3000,output_tokens:400},output:[{content:[{type:'output_text',text:JSON.stringify({readable:true,overall:'Goed gewerkt.',answers:[{number:1,answerSeen:'9',points:5,confidence:'hoog',feedback:'Goed.',methodMatch:'zelfde methode',methodNote:''},{number:2,answerSeen:'13',points:0,confidence:'middel',feedback:'Fout.',methodMatch:'niet te zien',methodNote:''}]})}]}]});};
+ try{
+  const paper={id:'pap1',profile:sam,module:'demo',title:m.title,code:'ABCD-2345',questions:m.questions.slice(0,3),created:Date.now()};
+  assert.equal((await b.put('/api/items/paper/pap1',{data:{...paper,code:'kort'}})).status,400);
+  assert.equal((await b.put('/api/items/paper/pap1',{data:paper})).status,200);
+  assert.deepEqual((await b.get('/api/state')).body.papers.map(p=>p.code),['ABCD-2345']);
+  const photo='data:image/jpeg;base64,'+Buffer.from('blad').toString('base64');
+  assert.equal((await b.post('/api/grade-paper',{paper:'pap1',images:[photo]})).status,403,'consent first');await b.post('/api/family/consent',{consent:true});
+  assert.equal((await b.post('/api/grade-paper',{paper:'pap1',images:[]})).status,400);assert.equal((await b.post('/api/grade-paper',{paper:'onbekend',images:[photo]})).status,404);
+  const r=await b.post('/api/grade-paper',{paper:'pap1',images:[photo,photo]});assert.equal(r.status,200,JSON.stringify(r.body));
+  assert.deepEqual(r.body.result.answers.map(a=>a.points),[2,0,0],'clamped to the 2-point maximum; a missing answer gets 0');assert.match(r.body.result.answers[2].feedback,/niet gevonden/);
+  const content=sent.input[0].content;assert.equal(content.filter(c=>c.type==='input_image').length,2);assert.equal(JSON.parse(content[0].text).vragen.length,3);assert.match(sent.instructions,/Het boek .* is de maatstaf/);
+  assert.equal((await b.get('/api/state')).body.usage.analyses,1);
+  const other=await family(env,'q@x.nl');await other.b.post('/api/family/consent',{consent:true});assert.equal((await other.b.post('/api/grade-paper',{paper:'pap1',images:[photo]})).status,404);
  }finally{globalThis.fetch=old;}
 });
 

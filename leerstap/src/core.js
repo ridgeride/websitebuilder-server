@@ -54,7 +54,7 @@ export {isId};
 // Shared by backup restore (browser) and the server, so both accept exactly the same records.
 export const validQuestion=q=>!!q&&isId(q.id)&&text(q.prompt)&&text(q.answer)&&text(q.goal)&&text(q.hint)&&text(q.rubric)&&text(q.explanation)&&['numeric','open','word'].includes(q.kind)&&Number.isInteger(q.points)&&q.points>0&&q.points<=10&&[1,2,3].includes(q.level)&&(q.chapter===undefined||Number.isInteger(q.chapter)&&q.chapter>=0&&q.chapter<100)&&isId(q.cite?.source)&&Number.isInteger(q.cite.page)&&text(q.cite.quote);
 export const validProfile=p=>!!p&&isId(p.id)&&text(p.name)&&text(p.level)&&(p.subjects===undefined||list(p.subjects)&&p.subjects.every(text));
-export const validModule=m=>!!m&&isId(m.id)&&text(m.title)&&text(m.subject)&&text(m.level)&&list(m.questions)&&m.questions.length>0&&m.questions.every(validQuestion)&&list(m.chapters)&&!m.chapters.some(c=>!text(c.title)||!text(c.summary)||!list(c.goals)||!c.goals.every(text)||!list(c.terms)||c.terms.some(t=>!text(t.term)||!text(t.definition))||!isId(c.cite?.source)||!Number.isInteger(c.cite.page)||!text(c.cite.quote))&&list(m.warnings)&&m.warnings.every(text)&&['schoolYear','period','chapter','method'].every(k=>optText(m[k]))&&optTime(m.deletedAt);
+export const validModule=m=>!!m&&isId(m.id)&&text(m.title)&&text(m.subject)&&text(m.level)&&list(m.questions)&&m.questions.length>0&&m.questions.every(validQuestion)&&list(m.chapters)&&!m.chapters.some(c=>!text(c.title)||!text(c.summary)||!optText(c.method)||!list(c.goals)||!c.goals.every(text)||!list(c.terms)||c.terms.some(t=>!text(t.term)||!text(t.definition))||!isId(c.cite?.source)||!Number.isInteger(c.cite.page)||!text(c.cite.quote))&&list(m.warnings)&&m.warnings.every(text)&&['schoolYear','period','chapter','method'].every(k=>optText(m[k]))&&optTime(m.deletedAt);
 export const validPages=pages=>list(pages)&&!pages.some(p=>!isId(p.id)||!Number.isInteger(p.page)||p.page<1||!text(p.text)||!image(p.image));
 export const validDocumentMeta=d=>!!d&&isId(d.id)&&text(d.name)&&text(d.type)&&list(d.warnings)&&d.warnings.every(text)&&['subject','schoolYear','period','chapter','method'].every(k=>optText(d[k]))&&optTime(d.deletedAt);
 export const validDocument=d=>validDocumentMeta(d)&&text(d.data)&&validPages(d.pages);
@@ -62,7 +62,7 @@ export const validSession=a=>!!a&&isId(a.profile)&&isId(a.module)&&text(a.title)
 export const validAttempt=a=>isId(a?.id)&&validSession(a)&&list(a.results)&&a.results.length===a.questions.length&&!a.results.some((r,i)=>!r||!Number.isFinite(r.points)||r.points<0||r.points>a.questions[i].points||typeof r.pending!=='boolean'||!text(r.feedback)||!text(r.confidence)||!text(r.category))&&!!a.review&&typeof a.review==='object';
 const shortText=(v,max=200)=>text(v)&&v.length<=max,isDay=v=>text(v)&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v));
 // Word lists belong to the whole family; a plan belongs to one child.
-export const validWordlist=w=>!!w&&isId(w.id)&&shortText(w.title,150)&&shortText(w.subject||'',80)&&shortText(w.langA,40)&&shortText(w.langB,40)&&shortText(w.speech||'',20)&&list(w.pairs)&&w.pairs.length>0&&w.pairs.length<=500&&w.pairs.every(p=>isId(p.id)&&shortText(p.a)&&shortText(p.b)&&p.a.trim()&&p.b.trim())&&optTime(w.deletedAt);
+export const validWordlist=w=>!!w&&isId(w.id)&&shortText(w.title,150)&&shortText(w.subject||'',80)&&shortText(w.langA,40)&&shortText(w.langB,40)&&shortText(w.speech||'',20)&&list(w.pairs)&&w.pairs.length>0&&w.pairs.length<=500&&w.pairs.every(p=>isId(p.id)&&shortText(p.a)&&shortText(p.b)&&p.a.trim()&&p.b.trim())&&(w.documents===undefined||list(w.documents)&&w.documents.length<=5&&w.documents.every(isId))&&optTime(w.deletedAt);
 export const validPlan=p=>!!p&&isId(p.id)&&isId(p.profile)&&shortText(p.title,150)&&isDay(p.date)&&isDay(p.start)&&p.start<=p.date&&list(p.items)&&p.items.length>0&&p.items.length<=10&&p.items.every(i=>['module','wordlist'].includes(i.type)&&isId(i.id))&&Number.isInteger(p.minutes)&&p.minutes>=5&&p.minutes<=120&&!!p.checked&&typeof p.checked==='object'&&Object.entries(p.checked).every(([d,v])=>isDay(d)&&v===true)&&optTime(p.deletedAt);
 export function validateState(s){
  const fail=()=>{throw Error('Onbekende of beschadigde back-up. Bestaande gegevens zijn behouden.');};
@@ -78,7 +78,7 @@ export function demoModule(){
  questions.push({id:'demo-8',prompt:'Leg uit waarom √(9 + 16) niet gelijk is aan √9 + √16.',answer:'√25 = 5, maar 3 + 4 = 7. Een wortel mag niet over een som worden verdeeld.',level:3,goal:'Wortelregels',explanation:'De wortel van een som is niet de som van de wortels: 5 ≠ 7.',kind:'open',points:3,hint:'Reken beide kanten apart uit.',rubric:'1 punt voor √25 = 5; 1 punt voor 3 + 4 = 7; 1 punt voor de conclusie dat verdelen over een som niet mag.',cite});
  return {id:'demo',title:'Wortels zonder twijfel',subject:'Wiskunde',level:'2 havo/vwo',approved:true,demo:true,chapters:[{title:'1 · Wortels & rekenvolgorde',summary:'Een vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal onder het wortelteken oplevert. Zo is √81 = 9. Werk eerst haakjes uit, daarna wortels en machten, dan vermenigvuldigen en delen, en tot slot optellen en aftrekken. Let op: √(a + b) is meestal niet √a + √b.',goals:['Vierkantswortels berekenen','Rekenvolgorde toepassen','Fouten met wortelregels herkennen'],terms:[{term:'Vierkantswortel',definition:'De niet-negatieve waarde waarvan het kwadraat het gegeven getal is.'},{term:'Kwadraat',definition:'Een getal vermenigvuldigd met zichzelf.'}],cite}],questions,warnings:[]};
 }
-export function initialState(){return {version:1,profiles:[{id:'leerling-1',name:'Leerling 1',level:'2 havo/vwo'}],documents:[],modules:[demoModule()],attempts:[],wordlists:[demoWordlist()],plans:[],draft:null};}
+export function initialState(){return {version:1,profiles:[{id:'leerling-1',name:'Leerling 1',level:'2 havo/vwo'}],documents:[],modules:[demoModule()],attempts:[],wordlists:[],plans:[],draft:null};}
 
 // --- Woordjes: compare like a teacher would, and say why an answer is almost right.
 const ARTICLES=/^(de|het|een|the|a|an|to|le|la|les|l'|un|une|des|der|die|das|den|dem|ein|eine|einen|el|los|las|il|lo|gli)\s+/;
@@ -193,7 +193,39 @@ export function testFeedback(m,attempt){
   const why=status==='goed'?'Je hebt bijna alles goed. Herhaal later nog eens om het vast te houden.':`${weak.length?`Vooral bij ${weak.join(', ')} ging het nog niet goed. `:''}${[...r.mistakes].map(([c,n])=>`${n}× ${c.toLowerCase()}`).join(', ')||'Een deel van de antwoorden wacht nog op beoordeling'}.`;
   return {chapter:r.chapter,title:r.title,points:r.points,max:r.max,pct,status,pending:r.pending,goals,weak,why};});
 }
-export function demoWordlist(){
- const rows=[['het huis','la maison'],['de kat','le chat'],['de hond','le chien'],['het boek','le livre'],['de school','l’école'],['groot','grand / grande'],['eten','manger'],['de vriend','l’ami']];
- return {id:'demo-woorden',title:'Frans · voorbeeldlijst',subject:'Frans',langA:'Nederlands',langB:'Frans',speech:'fr-FR',pairs:rows.map(([a,b],i)=>({id:'dw'+i,a,b})),created:0,demo:true};
+
+// --- Papieren proefwerk: printed with a code, photographed when done, graded against the same questions.
+export const validPaper=p=>!!p&&isId(p.id)&&isId(p.profile)&&isId(p.module)&&shortText(p.title,150)&&/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(p.code||'')&&list(p.questions)&&p.questions.length>0&&p.questions.length<=60&&p.questions.every(validQuestion)&&Number.isFinite(p.created)&&optTime(p.gradedAt)&&(p.attempt===undefined||isId(p.attempt));
+export function paperCode(random=Math.random){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<8;i++)s+=a[Math.floor(random()*a.length)];return s.slice(0,4)+'-'+s.slice(4);}
+
+// Per kind of question (learning goal, for maths: the type of sum), across the whole attempt.
+export function goalFeedback(attempt){
+ const goals=new Map();attempt.questions.forEach((q,i)=>{const r=attempt.results[i];if(!r||r.pending)return;const g=goals.get(q.goal)||{goal:q.goal,points:0,max:0,count:0};g.points+=r.points;g.max+=q.points;g.count++;goals.set(q.goal,g);});
+ return [...goals.values()].map(g=>({...g,pct:Math.round(g.points/g.max*100)})).sort((a,b)=>b.pct-a.pct);
+}
+// The questions of a module grouped as the AI recognised them: paragraph → learning goals.
+export function topics(m){return m.chapters.map((c,i)=>({chapter:i,title:c.title,goals:[...new Set(m.questions.filter(q=>questionChapter(m,q)===i).map(q=>q.goal))]})).filter(t=>t.goals.length);}
+
+// --- Advies: at most three concrete suggestions for today, each with the reason.
+export function advise({modules,wordlists,plans,attempts},profile,now=Date.now()){
+ const today=dayKey(now),out=[],mine=attempts.filter(a=>a.profile===profile),done=masteredIds(attempts,profile);
+ const pct=qs=>qs.length?Math.round(qs.filter(q=>done.has(q.id)).length/qs.length*100):0;
+ const itemQs=i=>i.type==='module'?modules.find(m=>m.id===i.id)?.questions||[]:(w=>w?wordQuestions(w,'both'):[])(wordlists.find(w=>w.id===i.id));
+ for(const p of plans.filter(p=>p.profile===profile&&p.date>=today).sort((a,b)=>a.date<b.date?-1:1)){
+  const left=daysBetween(today,p.date),ready=pct(p.items.flatMap(itemQs)),idx=planDays(p).findIndex(d=>d.day===today);
+  if(left<=7&&ready<80)out.push({kind:'plan',text:`${p.title}: over ${left} dag${left===1?'':'en'}. Je bent nu ${ready}% klaar.`,why:left<=2?'De toets is bijna. Herhaal vooral wat nog niet zit.':'Elke dag een beetje werkt beter dan alles op het laatst.',action:idx>=0?{type:'plan',plan:p.id,index:idx}:null});
+ }
+ // The weakest learning goal in the latest test or drill of each module.
+ const latest=new Map();for(const a of mine.filter(a=>modules.some(m=>m.id===a.module)).sort((x,y)=>x.created-y.created))latest.set(a.module,a);
+ const weak=[...latest.values()].flatMap(a=>goalFeedback(a).filter(g=>g.pct<60&&g.max>0).map(g=>({...g,module:a.module,title:a.title}))).sort((a,b)=>a.pct-b.pct)[0];
+ if(weak)out.push({kind:'goal',text:`Oefen „${weak.goal}” (${weak.title}).`,why:`Bij de laatste keer had je hier ${weak.points} van de ${weak.max} punten. Een drill op alleen dit onderwerp helpt het meest.`,action:{type:'goal',module:weak.module,goal:weak.goal}});
+ const due=new Map();for(const a of mine)for(const [id,r] of Object.entries(a.review||{}))due.set(id,{r,module:a.module});
+ const dueNow=[...due.values()].filter(x=>x.r.due<=now&&modules.some(m=>m.id===x.module));
+ if(dueNow.length){const counts=new Map();dueNow.forEach(x=>counts.set(x.module,(counts.get(x.module)||0)+1));const [module,n]=[...counts].sort((a,b)=>b[1]-a[1])[0];out.push({kind:'repeat',text:`${n} vraag${n===1?'':'en'} uit „${modules.find(m=>m.id===module).title}” ${n===1?'is':'zijn'} klaar voor herhaling.`,why:'Herhalen net voordat je het vergeet, zorgt dat het blijft hangen.',action:{type:'open',module}});}
+ const fresh=modules.find(m=>m.approved&&!m.deletedAt&&!m.demo&&!mine.some(a=>a.module===m.id));
+ if(fresh)out.push({kind:'new',text:`Begin met „${fresh.title}”.`,why:'Lees eerst de samenvatting en de begrippen, en doe daarna een korte drill.',action:{type:'module',module:fresh.id}});
+ const words=wordlists.filter(w=>!w.deletedAt).map(w=>({w,p:pct(wordQuestions(w,'both'))})).filter(x=>x.p<100).sort((a,b)=>a.p-b.p)[0];
+ if(words&&out.length<3)out.push({kind:'words',text:`Overhoor „${words.w.title}”: je kent ${words.p}%.`,why:'Woordjes blijven het best hangen als je ze vaak kort herhaalt.',action:{type:'words',list:words.w.id}});
+ if(!out.length)out.push({kind:'ok',text:'Alles ligt op koers.',why:'Je hebt geen open herhalingen of zwakke onderwerpen. Plan je volgende toets, of voeg nieuwe leerstof toe.',action:null});
+ return out.slice(0,3);
 }

@@ -1,4 +1,4 @@
-# Leerstap 0.6.0
+# Leerstap 0.7.0
 
 Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders. Upload je leerstof, laat AI er een samenvatting en oefenvragen van maken, en oefen tot je het snapt. Fouten komen terug, eerst met uitleg. Proefwerken kun je online maken of als PDF printen, met opgaven en antwoorden apart.
 
@@ -17,7 +17,10 @@ Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders.
 Daarnaast:
 
 - **Drill:** alle vragen van de gekozen paragrafen, tot alles beheerst is. Goed in één keer: klaar. Fout: terug tot twee keer achter elkaar goed.
-- **Woordjes:** woordenlijsten typen of uit een foto van het boek laten halen, overhoren in beide richtingen, hulp bij bijna-goed (lidwoord, accent, kleine spelfout) en uitspraak.
+- **Alles uit het eigen boek:** samenvattingen, vragen en uitwerkingen komen alleen uit de geüploade bronnen, volgens de werkwijze van het boek. Nakijken en "leg het uit" worden vergeleken met de bladzijde zelf; een goed antwoord met een andere methode wordt uitgelegd.
+- **Papieren proefwerk:** printen met een code, op papier maken, foto’s uploaden; nakijken met cijfer, punten en terugkoppeling per paragraaf en per soort vraag of som.
+- **Kiezen wat je leert:** per paragraaf en onderwerp aan- of uitzetten, en overslaan wat je al beheerst. **Advies** op de startpagina: wat je vandaag het best kunt doen, en waarom.
+- **Woordjes:** alleen uit de eigen bron (verzonnen woorden worden geweigerd) of zelf overgetypt, overhoren in beide richtingen, hulp bij bijna-goed (lidwoord, accent, kleine spelfout) en uitspraak.
 - **Toets op maat:** paragrafen kiezen, een realistische toets met alle niveaus, en daarna terugkoppeling per paragraaf: wat zit goed, waar moet je meer op leren en waarom, met een knop om precies dat te drillen.
 - **Toetsplanner:** toets met datum en leerstof, een korte taak per dag, twee dagen ervoor een proefwerk, de dag ervoor herhaling. De taak van vandaag staat op de startpagina.
 - **AI-hulp voor de leerling** (met toestemming van de ouder): een foto van de uitwerking laten nakijken met deelpunten, en feedback op een eigen uitleg van een begrip. Open vragen kun je ook zelf nakijken met het modelantwoord.
@@ -34,7 +37,7 @@ Vereist Node.js 22.13 of nieuwer.
 
 ```text
 npm ci
-npm test            # 38 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
+npm test            # 39 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
 npm run build       # bouwt dist/public
 npm start           # http://127.0.0.1:4173, gegevens in ./data
 npm run test:e2e    # volledige route in een echte browser (ouder én kind), met een nep-AI
