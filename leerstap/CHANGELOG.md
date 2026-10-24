@@ -1,5 +1,11 @@
 # Wijzigingen
 
+## 0.9.5 — 24 oktober 2026
+
+- Een bladzijde die eerder op het apparaat is gelezen, wordt bij het openen van het controlescherm eerst opnieuw door de AI gelezen (als de AI beschikbaar is en AI-lezen aan staat).
+- De AI-controle loopt de foto regel voor regel na, noemt tot 40 verschillen en geeft een oordeel per bladzijde (goed, matig, slecht). Bij "slecht" raadt Leerstap opnieuw lezen of een nieuwe foto aan in plaats van alles met de hand te verbeteren. Na opnieuw lezen door de AI wordt de tekst opnieuw gecontroleerd.
+- De belangrijkste fotoregel staat zichtbaar bij het uploaden: alleen de bladzijde van het boek op de foto, geen ander huiswerk of de tafel.
+
 ## 0.9.4 — 24 oktober 2026
 
 - **Bladzijden op volgorde van het boek.** Bij het uitlezen wordt het gedrukte paginanummer herkend (aanpasbaar in het controlescherm). De samenvatting krijgt alle bladzijden van een hoofdstuk op paginanummer, ongeacht de uploadvolgorde, en weet dat tekst doorloopt naar de volgende bladzijde. Bij het hoofdstuk staat "blz. 45–52", met een waarschuwing als er bladzijden ontbreken of dubbel zijn.
