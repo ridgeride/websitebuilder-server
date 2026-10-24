@@ -195,7 +195,8 @@ try{
   await parent.click('[data-action="nav"][data-route="library"]');await parent.selectOption('#up-subject','Frans');await parent.fill('#up-chapter','H2 woordjes');await parent.setInputFiles('#files',{name:'frans-h2-woordjes.txt',mimeType:'text/plain',buffer:Buffer.from('Woordenlijst Frans H2\nde kat - le chat\nde hond - le chien\nhet huis - la maison')});
   await parent.waitForSelector('.card.map:has-text("H2 woordjes")');await saved(parent);
   await parent.click('[data-action="nav"][data-route="words"]');await parent.waitForSelector('text=Nog geen woordenlijsten');
-  await parent.check('input[name="wl-doc"]:near(:text("frans-h2-woordjes.txt"))');await click(parent,'words-source');
+  const all=parent.locator('.wl-all:not([data-group])');await all.check();assert.equal(await parent.locator('input[name="wl-doc"]:checked').count(),await parent.locator('input[name="wl-doc"]').count(),'select all');await all.uncheck();assert.equal(await parent.locator('input[name="wl-doc"]:checked').count(),0);
+  const wm=parent.locator('.wl-map',{hasText:'frans-h2-woordjes.txt'});await wm.locator('summary').click();await wm.locator('label',{hasText:'frans-h2-woordjes.txt'}).locator('input').check();await click(parent,'words-source');
   await parent.waitForSelector('#toast:has-text("3 woordjes gevonden")');await parent.waitForSelector('#toast:has-text("niet letterlijk in de bron")');
   const pairs=await parent.inputValue('#wl-pairs');assert.ok(!pairs.includes('souris'),'a word that is not in the book is not added');assert.equal(pairs.split('\n').length,3);
   assert.equal(await parent.inputValue('#wl-b'),'Frans');await parent.fill('#wl-title','Frans H2');await shot(parent,'17-woordjes-uit-bron');await click(parent,'words-save');

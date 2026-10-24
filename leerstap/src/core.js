@@ -46,18 +46,37 @@ export function schedulePractice(d,index,result){
 }
 export function validateModule(m,pages){
  if(!m||typeof m.title!=='string'||!Array.isArray(m.chapters)||!m.chapters.length||!Array.isArray(m.questions)||!m.questions.length)throw Error('Onvolledige analyse. Er is niets vrijgegeven.');
- // Every citation must be found in the pupil's own pages. The AI sometimes names the page by its number in the book, or the wrong photo:
- // then the quote itself decides where it really is. A quote that is nowhere in the text still blocks the analysis.
- const flat=t=>String(t||'').replace(/[’‘]/g,"'").replace(/[“”„]/g,'"').replace(/\s+/g,' ').trim(),has=(p,q)=>flat(p.text).includes(flat(q));
- const cite=c=>{if(!c||!c.quote?.trim())throw Error('Broncitaat ontbreekt.');
-  const exact=pages.find(p=>p.id===c.source&&p.page===c.page);if(exact&&(!exact.text.trim()||has(exact,c.quote)))return;
-  const found=pages.find(p=>p.text.trim()&&has(p,c.quote));if(found){c.source=found.id;c.page=found.page;return;}
-  if(exact)throw Error('Een broncitaat is niet teruggevonden. Analyse geblokkeerd.');
-  const byBook=pages.find(p=>p.id===c.source&&p.bookPage===c.page)||pages.find(p=>p.bookPage===c.page);
-  if(byBook&&!byBook.text.trim()){c.source=byBook.id;c.page=byBook.page;return;}
-  throw Error(byBook?'Een broncitaat is niet teruggevonden. Analyse geblokkeerd.':'Een bronverwijzing bestaat niet. Controleer de analyse.');};
- for(let c of m.chapters){if(typeof c.summary!=='string'||!Array.isArray(c.goals)||!Array.isArray(c.terms))throw Error('Onvolledig hoofdstuk');cite(c.cite);}
- for(let q of m.questions){if(!['numeric','open'].includes(q.kind)||!Number.isInteger(q.points)||q.points<1||q.points>10||![1,2,3].includes(q.level)||!['prompt','answer','explanation','hint','goal','rubric'].every(k=>typeof q[k]==='string'&&q[k].length))throw Error('Ongeldig vragenmodel');cite(q.cite);q.id=q.id||uid();if(!Number.isInteger(q.chapter)||q.chapter<0||q.chapter>=m.chapters.length)delete q.chapter;}
+ for(const c of m.chapters)if(typeof c.summary!=='string'||!Array.isArray(c.goals)||!Array.isArray(c.terms))throw Error('Onvolledig hoofdstuk');
+ for(const q of m.questions)if(!['numeric','open'].includes(q.kind)||!Number.isInteger(q.points)||q.points<1||q.points>10||![1,2,3].includes(q.level)||!['prompt','answer','explanation','hint','goal','rubric'].every(k=>typeof q[k]==='string'&&q[k].length))throw Error('Ongeldig vragenmodel');
+ // Every citation must be found in the pupil's own pages. The AI sometimes names the page by its number in the book, the wrong photo,
+ // or changes a comma or capital: then the quote itself decides where it really is. A quote that is only partly right is replaced by
+ // the longest piece that is literally on the page. What cannot be found at all is left out, never shown as if it came from the book.
+ const word=t=>t.toLowerCase().normalize('NFC').replace(/[’‘`]/g,"'").replace(/[^\p{L}\p{N}³²]+/gu,'');
+ const words=t=>String(t||'').split(/\s+/).map(word).filter(Boolean),flat=t=>' '+words(t).join(' ')+' ';
+ const texts=pages.filter(p=>p.text.trim()).map(p=>({p,flat:flat(p.text),raw:p.text.split(/\s+/).filter(x=>word(x))}));
+ const has=(t,quote)=>{const parts=String(quote).split(/…|\.\.\./).map(flat).filter(x=>x.trim().length>1);return parts.length>0&&parts.every(x=>t.flat.includes(x));};
+ const longest=(t,qw)=>{const pw=t.raw.map(word);let best=0,end=0,prev=new Array(qw.length+1).fill(0);
+  for(let i=1;i<=pw.length;i++){const cur=new Array(qw.length+1).fill(0);for(let j=1;j<=qw.length;j++)if(pw[i-1]===qw[j-1]){cur[j]=prev[j-1]+1;if(cur[j]>best){best=cur[j];end=i;}}prev=cur;}
+  return {n:best,quote:t.raw.slice(end-best,end).join(' ')};};
+ const cite=c=>{if(!c||!String(c.quote||'').trim())return false;
+  const exact=pages.find(p=>p.id===c.source&&p.page===c.page),own=exact&&texts.find(t=>t.p===exact);
+  if(exact&&(!exact.text.trim()||has(own,c.quote)))return true;
+  const found=texts.find(t=>has(t,c.quote));if(found){c.source=found.p.id;c.page=found.p.page;return true;}
+  if(!exact){const byBook=pages.find(p=>p.id===c.source&&p.bookPage===c.page)||pages.find(p=>p.bookPage===c.page);if(byBook&&!byBook.text.trim()){c.source=byBook.id;c.page=byBook.page;return true;}}
+  const qw=words(c.quote).slice(0,60);if(qw.length<3)return false;
+  let best={n:0};for(const t of own?[own,...texts.filter(x=>x!==own)]:texts){const r=longest(t,qw);if(r.n>best.n)best={...r,p:t.p};}
+  if(best.n>=Math.min(6,qw.length)&&best.n>=qw.length*.5){c.source=best.p.id;c.page=best.p.page;c.quote=best.quote;return true;}
+  return false;};
+ const warn=t=>{m.warnings=Array.isArray(m.warnings)?m.warnings:[];m.warnings.push(t);};
+ const before=m.questions.length;m.questions=m.questions.filter(q=>cite(q.cite));
+ if(m.questions.length<before)warn(`${before-m.questions.length} vraag/vragen weggelaten: het citaat stond niet in jullie bladzijden.`);
+ for(const q of m.questions){q.id=q.id||uid();if(!Number.isInteger(q.chapter)||q.chapter<0||q.chapter>=m.chapters.length)delete q.chapter;}
+ // A chapter whose own quote is not found borrows the checked quote of one of its questions; otherwise it is left out.
+ const keep=m.chapters.map((c,i)=>{if(cite(c.cite))return true;const q=m.questions.find(q=>q.chapter===i)||(m.chapters.length===1&&m.questions[0]);if(q){c.cite={...q.cite};return true;}return false;});
+ if(keep.some(k=>!k)){const map=[];let n=0;keep.forEach((k,i)=>map[i]=k?n++:-1);
+  warn(`${keep.filter(k=>!k).length} onderdeel/onderdelen weggelaten: de bron is niet teruggevonden.`);
+  m.chapters=m.chapters.filter((_,i)=>keep[i]);m.questions=m.questions.filter(q=>q.chapter===undefined||keep[q.chapter]);for(const q of m.questions)if(q.chapter!==undefined)q.chapter=map[q.chapter];}
+ if(!m.chapters.length||!m.questions.length)throw Error('Een broncitaat is niet teruggevonden in jullie bladzijden. Controleer de tekst van de bladzijden en probeer het opnieuw.');
  return m;
 }
 const isId=v=>typeof v==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(v),text=v=>typeof v==='string',list=v=>Array.isArray(v),image=v=>!v||(text(v)&&/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v)),optText=v=>v===undefined||v===null||text(v),optTime=v=>v===undefined||v===null||Number.isFinite(v);

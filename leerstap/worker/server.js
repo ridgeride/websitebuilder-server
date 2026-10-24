@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,verifyText,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.9.7';
+export const APP_VERSION='0.9.8';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -227,7 +227,7 @@ async function explainRoute(env,user,input){
  return {result:await aiCheck(env,user,()=>explainFeedback(env,{term:term.term,definition:term.definition,summary:chapter.summary,quote:chapter.cite.quote,method:chapter.method,text,level:m.data.level,source}))};
 }
 async function wordsRoute(env,user,input){
- const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>5||!ids.every(isId))fail(400,'Kies de bron (foto of bestand uit je boek) met de woordjes.');
+ const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>10||!ids.every(isId))fail(400,'Kies de bron (foto of bestand uit je boek) met de woordjes.');
  const pages=[];for(const id of ids){const d=await getItem(env,user.family,'document',id);if(!d||d.data.deletedAt)fail(404,'Een gekozen bron bestaat niet meer.');pages.push(...await documentPages(env,user,id));}
  if(pages.length>10)fail(400,'Kies maximaal 10 pagina’s met woordjes tegelijk.');
  const result=await aiCheck(env,user,()=>wordsFromSource(env,{pages}));return {result:{...result,documents:ids}};

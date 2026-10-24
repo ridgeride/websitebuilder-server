@@ -1,5 +1,11 @@
 # Wijzigingen
 
+## 0.9.8 — 24 oktober 2026
+
+- Hersteld: **"Broncitaat niet teruggevonden" blokkeerde de hele analyse.** Hoofdletters, leestekens en "…" in een citaat tellen niet meer mee. Is een citaat een beetje anders dan het boek, dan neemt Leerstap het langste stuk dat wél letterlijk op de bladzijde staat. Een vraag waarvan het citaat nergens staat, wordt weggelaten (met een melding); de rest van de leerstof blijft. Alleen als er niets controleerbaars overblijft, stopt de analyse.
+- Een hoofdstuk met alleen een woordenlijst staat nu op **Woordenlijst gemaakt** in plaats van *Nog niet geanalyseerd*.
+- **Woordjes uit je boek halen:** bronnen per hoofdstuk, met **Selecteer alles** en per hoofdstuk één vinkje. Meer dan 10 bladzijden worden in delen gelezen en samengevoegd.
+
 ## 0.9.7 — 24 oktober 2026
 
 - **Eén hoofdstuk, één toets.** Een woordenlijst gemaakt van dezelfde bladzijden hoort bij dat hoofdstuk: je ziet hem bij het hoofdstuk, en bij *Proefwerk* staat hij onder *Woordjes erbij* (standaard aan, met aantal per lijst). Het proefwerk mengt dan grammatica- en woordjesvragen, ook bij een papieren proefwerk.
