@@ -204,16 +204,19 @@ export function chooseTest(m,chapters,count,random=Math.random){
  return picked.slice(0,n).sort((a,b)=>a.level-b.level||questionChapter(m,a)-questionChapter(m,b));
 }
 // After a test: per paragraph and learning goal how it went, and what to study and why.
-export function testFeedback(m,attempt){
- const rows=m.chapters.map((c,i)=>({chapter:i,title:c.title,points:0,max:0,pending:0,goals:new Map(),mistakes:new Map()}));
- attempt.questions.forEach((q,i)=>{const r=attempt.results[i],row=rows[questionChapter(m,q)]||rows[0];if(!r)return;
+// Word questions in the same test get a row of their own per word list, so grammar and words are shown apart.
+export function testFeedback(m,attempt,lists=[]){
+ const rows=m.chapters.map((c,i)=>({chapter:i,title:c.title,points:0,max:0,pending:0,goals:new Map(),mistakes:new Map()})),wordRows=new Map();
+ attempt.questions.forEach((q,i)=>{const r=attempt.results[i];if(!r)return;
+  let row;if(q.kind==='word'){const id=q.cite.source;if(!wordRows.has(id))wordRows.set(id,{chapter:-1,list:id,title:`Woordjes · ${lists.find(l=>l.id===id)?.title||'woordenlijst'}`,points:0,max:0,pending:0,goals:new Map(),mistakes:new Map()});row=wordRows.get(id);}else row=rows[questionChapter(m,q)]||rows[0];
   row.max+=q.points;row.points+=r.points;if(r.pending)row.pending++;
   const g=row.goals.get(q.goal)||{goal:q.goal,points:0,max:0};g.points+=r.points;g.max+=q.points;row.goals.set(q.goal,g);
   if(!r.pending&&r.points<q.points)row.mistakes.set(r.category,(row.mistakes.get(r.category)||0)+1);});
- return rows.filter(r=>r.max).map(r=>{const pct=Math.round(r.points/r.max*100),goals=[...r.goals.values()].map(g=>({...g,pct:Math.round(g.points/g.max*100)})),weak=goals.filter(g=>g.pct<70).map(g=>g.goal);
+ return [...rows,...wordRows.values()].filter(r=>r.max).map(r=>{const pct=Math.round(r.points/r.max*100),goals=[...r.goals.values()].map(g=>({...g,pct:Math.round(g.points/g.max*100)})),weak=goals.filter(g=>g.pct<70).map(g=>g.goal);
   const status=r.pending&&pct<80?'voorlopig':pct>=80?'goed':pct>=55?'bijna':'meer leren';
+  if(r.list){const wrong=r.max-r.points;return {chapter:-1,list:r.list,title:r.title,points:r.points,max:r.max,pct,status,pending:r.pending,goals:[],weak:[],why:status==='goed'?'Je kent bijna alle woordjes. Herhaal ze later nog eens.':`${r.points} van de ${r.max} woordjes goed. Overhoor vooral de ${wrong} die fout gingen; die komen in de overhoring vanzelf vaker terug.`};}
   const why=status==='goed'?'Je hebt bijna alles goed. Herhaal later nog eens om het vast te houden.':`${weak.length?`Vooral bij ${weak.join(', ')} ging het nog niet goed. `:''}${[...r.mistakes].map(([c,n])=>`${n}× ${c.toLowerCase()}`).join(', ')||'Een deel van de antwoorden wacht nog op beoordeling'}.`;
-  return {chapter:r.chapter,title:r.title,points:r.points,max:r.max,pct,status,pending:r.pending,goals,weak,why};});
+  return {chapter:r.chapter,list:r.list,title:r.title,points:r.points,max:r.max,pct,status,pending:r.pending,goals,weak,why};});
 }
 
 // --- Papieren proefwerk: printed with a code, photographed when done, graded against the same questions.
@@ -222,7 +225,7 @@ export function paperCode(random=Math.random){const a='ABCDEFGHJKLMNPQRSTUVWXYZ2
 
 // Per kind of question (learning goal, for maths: the type of sum), across the whole attempt.
 export function goalFeedback(attempt){
- const goals=new Map();attempt.questions.forEach((q,i)=>{const r=attempt.results[i];if(!r||r.pending)return;const g=goals.get(q.goal)||{goal:q.goal,points:0,max:0,count:0};g.points+=r.points;g.max+=q.points;g.count++;goals.set(q.goal,g);});
+ const goals=new Map();attempt.questions.forEach((q,i)=>{const r=attempt.results[i];if(!r||r.pending||q.kind==='word'&&attempt.mode==='test')return;const g=goals.get(q.goal)||{goal:q.goal,points:0,max:0,count:0};g.points+=r.points;g.max+=q.points;g.count++;goals.set(q.goal,g);});
  return [...goals.values()].map(g=>({...g,pct:Math.round(g.points/g.max*100)})).sort((a,b)=>b.pct-a.pct);
 }
 // The questions of a module grouped as the AI recognised them: paragraph → learning goals.

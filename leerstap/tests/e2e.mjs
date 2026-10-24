@@ -232,7 +232,7 @@ try{
   await parent.waitForSelector('fieldset.chapters:has-text("Rekenen met wortels")');await parent.selectOption('#count','0');await shot(parent,'19-proefwerk-kiezen');
   parent.once('dialog',d=>d.accept());await click(parent,'start','[data-mode="test"]');await parent.waitForSelector('text=richttijd');
   for(let i=0;i<5;i++){const p=await prompt(parent);await parent.fill('#answer',p.startsWith('Bereken √49.')||p.startsWith('Bereken √121.')?answers[p]:'1');if(i<4){await click(parent,'next');await parent.waitForSelector(`text=Vraag ${i+2} van`);}}
-  await click(parent,'finish');await parent.waitForSelector('h3:has-text("Terugkoppeling per paragraaf")');
+  await click(parent,'finish');await parent.waitForSelector('h3:has-text("Terugkoppeling per onderdeel")');
   await parent.waitForSelector('.feedback-table .pill:has-text("Zit goed")');await parent.waitForSelector('.feedback-table .pill:has-text("Hier meer op leren")');await shot(parent,'20-terugkoppeling');
   await parent.click('.feedback-table [data-action="drill-weak"]');await parent.waitForSelector('text=Rekenen met wortels');await parent.waitForSelector('text=van 3 beheerst');
  });
@@ -282,6 +282,17 @@ try{
   for(let t=0;t<6;t++){const p=await prompt(parent);assert.match(await parent.textContent('label[for="answer"]'),/past simple/);await parent.fill('#answer',{'to be':'was','to eat':'ate'}[p]);await click(parent,'check');await parent.waitForSelector('.feedback:has-text("Goed gedaan")');
    await parent.waitForSelector('[data-action="next"],[data-action="finish"]');if(await parent.$('[data-action="finish"]'))break;await click(parent,'next');await parent.waitForSelector('[data-action="check"]');}
   await click(parent,'finish');await parent.waitForSelector('.pill:has-text("Woordjes")');
+ });
+ await step('Eén hoofdstuk, één proefwerk: grammatica en de woordjes uit dezelfde bladzijden samen, met terugkoppeling per onderdeel',async()=>{
+  await parent.click('[data-action="nav"][data-route="library"]');const map='.card.map:has-text("Irregular verbs")';
+  await parent.waitForSelector(`${map} :text("Woordenlijst: Irregular verbs")`);await parent.click(`${map} [data-action="analyse"]`);await parent.waitForSelector('h1:has-text("Wortels uit mijn boek")');await click(parent,'approve');
+  const id=await parent.evaluate(async()=>{const s=await (await fetch('/api/state')).json(),doc=s.documents.find(d=>d.name==='blz-213.txt');return s.modules.find(m=>m.sourceNames?.[doc.id]).id;});
+  await parent.click('[data-action="nav"][data-route="test"]');await parent.selectOption('#module-select',id);await parent.waitForSelector('fieldset:has-text("Woordjes erbij") :text("Irregular verbs")');
+  await parent.selectOption('#count','0');await parent.selectOption('#test-words-count','0');const ok=d=>d.accept();parent.once('dialog',ok);await click(parent,'start','[data-mode="test"]');parent.off('dialog',ok);
+  const total=Number((await parent.textContent('text=/Vraag 1 van \\d+/')).match(/van (\d+)/)[1]);assert.ok(total>5,'module questions plus words: '+total);
+  for(let i=0;i<total;i++){await parent.fill('#answer','1');if(i<total-1){await click(parent,'next');await parent.waitForSelector(`text=Vraag ${i+2} van`);}}
+  await click(parent,'finish');await parent.waitForSelector('h3:has-text("Terugkoppeling per onderdeel")');await parent.waitForSelector('.feedback-table b:has-text("Woordjes · Irregular verbs")');
+  await parent.waitForSelector('.feedback-table [data-action="drill-open"][data-list]');await shot(parent,'26-toets-met-woordjes');
  });
  await step('Zelf een vak toevoegen dat niet in de lijst staat',async()=>{
   await parent.click('[data-action="nav"][data-route="library"]');assert.ok(await parent.$('#up-subject option:text-is("Natuur & techniek")'),'common subjects are listed');

@@ -1,5 +1,10 @@
 # Wijzigingen
 
+## 0.9.7 — 24 oktober 2026
+
+- **Eén hoofdstuk, één toets.** Een woordenlijst gemaakt van dezelfde bladzijden hoort bij dat hoofdstuk: je ziet hem bij het hoofdstuk, en bij *Proefwerk* staat hij onder *Woordjes erbij* (standaard aan, met aantal per lijst). Het proefwerk mengt dan grammatica- en woordjesvragen, ook bij een papieren proefwerk.
+- **Terugkoppeling per onderdeel:** paragrafen en elke woordenlijst apart ("Woordjes · Irregular verbs: 9 van 12 goed"), met *Overhoor deze woordjes* bij de woordenlijst en *Drill deze paragraaf* bij de rest.
+
 ## 0.9.6 — 24 oktober 2026
 
 - Hersteld: **"Een bronverwijzing bestaat niet"** bij het maken van een samenvatting. De AI noemde soms het paginanummer uit het boek in plaats van de foto; nu zoekt Leerstap het citaat zelf op in de tekst (spaties en aanhalingstekens tellen niet mee) en zet de verwijzing goed. Een citaat dat nergens in de tekst staat, blokkeert de analyse nog steeds.
