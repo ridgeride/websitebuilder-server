@@ -1,5 +1,12 @@
 # Wijzigingen
 
+## 0.9.6 — 24 oktober 2026
+
+- Hersteld: **"Een bronverwijzing bestaat niet"** bij het maken van een samenvatting. De AI noemde soms het paginanummer uit het boek in plaats van de foto; nu zoekt Leerstap het citaat zelf op in de tekst (spaties en aanhalingstekens tellen niet mee) en zet de verwijzing goed. Een citaat dat nergens in de tekst staat, blokkeert de analyse nog steeds.
+- **Maak woordenlijst van deze bladzijden** bij elk hoofdstuk: voor bladzijden met woordjes of rijtjes, in plaats van een samenvatting.
+- **Woordenlijsten met 3 of 4 kolommen**, zoals onregelmatige werkwoorden (infinitive = past simple = past participle = vertaling). Kolomkoppen uit het boek; oefenen per richting (bijv. infinitive → past simple, vertaling → infinitive) of alles door elkaar. Elke waarde moet letterlijk in de bron staan. Uitspraak in de vreemde taal.
+- **Samenvattingen slaan woordenlijsten over:** rijtjes worden in één zin genoemd (met verwijzing naar Woordjes); bij grammatica maakt de AI oefenvragen zoals een docent (aanvullen, omzetten, fout verbeteren).
+
 ## 0.9.5 — 24 oktober 2026
 
 - Een bladzijde die eerder op het apparaat is gelezen, wordt bij het openen van het controlescherm eerst opnieuw door de AI gelezen (als de AI beschikbaar is en AI-lezen aan staat).

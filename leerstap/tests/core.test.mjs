@@ -91,3 +91,13 @@ test('Units after a number are accepted, and ³ works in a calculation',async()=
  for(const a of ['2000','2000 cm³','2000cm3','2000 mL','2.000'.replace('.','')])assert.equal(grade(q,a).points,1,a);
  assert.equal(grade(q,'200 cm³').points,0);assert.equal(numberExpr('10³'),1000);assert.equal(grade({...q,answer:'1,5'},'1,5 kg').points,1);
 });
+
+test('Citations: a wrong page number or photo is repaired by finding the quote; an invented quote still blocks',async()=>{
+ const {validateModule}=await import('../src/core.js');
+ const pages=[{id:'a',page:1,bookPage:213,text:'14 Irregular verbs\nto be was/were been zijn; worden'},{id:'b',page:1,bookPage:214,text:'to eat ate eaten eten'}];
+ const mk=cite=>({title:'T',chapters:[{title:'c',summary:'s',goals:['g'],terms:[],cite}],questions:[{kind:'open',points:1,level:1,prompt:'p',answer:'a',explanation:'e',hint:'h',goal:'g',rubric:'r',cite:{source:'b',page:1,quote:'to eat ate eaten'}}]});
+ const m=validateModule(mk({source:'a',page:213,quote:'to be was/were  been'}),pages);assert.deepEqual([m.chapters[0].cite.source,m.chapters[0].cite.page],['a',1],'book page 213 → photo a, page 1; spacing does not matter');
+ const m2=validateModule(mk({source:'b',page:1,quote:'14 Irregular verbs'}),pages);assert.equal(m2.chapters[0].cite.source,'a','wrong photo repaired');
+ assert.throws(()=>validateModule(mk({source:'a',page:1,quote:'to swim swam swum'}),pages),/niet teruggevonden/);
+ assert.throws(()=>validateModule(mk({source:'x',page:9,quote:'iets verzonnen'}),pages),/bestaat niet/);
+});

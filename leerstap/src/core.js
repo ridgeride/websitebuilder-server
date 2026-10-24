@@ -46,7 +46,16 @@ export function schedulePractice(d,index,result){
 }
 export function validateModule(m,pages){
  if(!m||typeof m.title!=='string'||!Array.isArray(m.chapters)||!m.chapters.length||!Array.isArray(m.questions)||!m.questions.length)throw Error('Onvolledige analyse. Er is niets vrijgegeven.');
- const cite=c=>{if(!c||!Number.isInteger(c.page)||!pages.some(p=>p.id===c.source&&p.page===c.page))throw Error('Een bronverwijzing bestaat niet. Controleer de analyse.');const p=pages.find(p=>p.id===c.source&&p.page===c.page);if(p.text&&!p.text.includes(c.quote))throw Error('Een broncitaat is niet teruggevonden. Analyse geblokkeerd.');if(!c.quote?.trim())throw Error('Broncitaat ontbreekt.');};
+ // Every citation must be found in the pupil's own pages. The AI sometimes names the page by its number in the book, or the wrong photo:
+ // then the quote itself decides where it really is. A quote that is nowhere in the text still blocks the analysis.
+ const flat=t=>String(t||'').replace(/[’‘]/g,"'").replace(/[“”„]/g,'"').replace(/\s+/g,' ').trim(),has=(p,q)=>flat(p.text).includes(flat(q));
+ const cite=c=>{if(!c||!c.quote?.trim())throw Error('Broncitaat ontbreekt.');
+  const exact=pages.find(p=>p.id===c.source&&p.page===c.page);if(exact&&(!exact.text.trim()||has(exact,c.quote)))return;
+  const found=pages.find(p=>p.text.trim()&&has(p,c.quote));if(found){c.source=found.id;c.page=found.page;return;}
+  if(exact)throw Error('Een broncitaat is niet teruggevonden. Analyse geblokkeerd.');
+  const byBook=pages.find(p=>p.id===c.source&&p.bookPage===c.page)||pages.find(p=>p.bookPage===c.page);
+  if(byBook&&!byBook.text.trim()){c.source=byBook.id;c.page=byBook.page;return;}
+  throw Error(byBook?'Een broncitaat is niet teruggevonden. Analyse geblokkeerd.':'Een bronverwijzing bestaat niet. Controleer de analyse.');};
  for(let c of m.chapters){if(typeof c.summary!=='string'||!Array.isArray(c.goals)||!Array.isArray(c.terms))throw Error('Onvolledig hoofdstuk');cite(c.cite);}
  for(let q of m.questions){if(!['numeric','open'].includes(q.kind)||!Number.isInteger(q.points)||q.points<1||q.points>10||![1,2,3].includes(q.level)||!['prompt','answer','explanation','hint','goal','rubric'].every(k=>typeof q[k]==='string'&&q[k].length))throw Error('Ongeldig vragenmodel');cite(q.cite);q.id=q.id||uid();if(!Number.isInteger(q.chapter)||q.chapter<0||q.chapter>=m.chapters.length)delete q.chapter;}
  return m;
@@ -64,7 +73,7 @@ export const validSession=a=>!!a&&isId(a.profile)&&isId(a.module)&&text(a.title)
 export const validAttempt=a=>isId(a?.id)&&validSession(a)&&list(a.results)&&a.results.length===a.questions.length&&!a.results.some((r,i)=>!r||!Number.isFinite(r.points)||r.points<0||r.points>a.questions[i].points||typeof r.pending!=='boolean'||!text(r.feedback)||!text(r.confidence)||!text(r.category))&&!!a.review&&typeof a.review==='object';
 const shortText=(v,max=200)=>text(v)&&v.length<=max,isDay=v=>text(v)&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&!Number.isNaN(Date.parse(v));
 // Word lists belong to the whole family; a plan belongs to one child.
-export const validWordlist=w=>!!w&&isId(w.id)&&shortText(w.title,150)&&shortText(w.subject||'',80)&&shortText(w.langA,40)&&shortText(w.langB,40)&&shortText(w.speech||'',20)&&list(w.pairs)&&w.pairs.length>0&&w.pairs.length<=500&&w.pairs.every(p=>isId(p.id)&&shortText(p.a)&&shortText(p.b)&&p.a.trim()&&p.b.trim())&&(w.documents===undefined||list(w.documents)&&w.documents.length<=5&&w.documents.every(isId))&&optTime(w.deletedAt);
+export const validWordlist=w=>!!w&&isId(w.id)&&shortText(w.title,150)&&shortText(w.subject||'',80)&&shortText(w.langA,40)&&shortText(w.langB,40)&&shortText(w.speech||'',20)&&list(w.pairs)&&w.pairs.length>0&&w.pairs.length<=500&&w.pairs.every(p=>isId(p.id)&&shortText(p.a)&&shortText(p.b)&&p.a.trim()&&p.b.trim()&&['c','d'].every(k=>p[k]===undefined||shortText(p[k])))&&(w.cols===undefined||list(w.cols)&&w.cols.length>=2&&w.cols.length<=4&&w.cols.every(x=>shortText(x,60)))&&(w.nlCol===undefined||Number.isInteger(w.nlCol)&&w.nlCol>=-1&&w.nlCol<4)&&(w.documents===undefined||list(w.documents)&&w.documents.length<=5&&w.documents.every(isId))&&optTime(w.deletedAt);
 export const validPlan=p=>!!p&&isId(p.id)&&isId(p.profile)&&shortText(p.title,150)&&isDay(p.date)&&isDay(p.start)&&p.start<=p.date&&list(p.items)&&p.items.length>0&&p.items.length<=10&&p.items.every(i=>['module','wordlist'].includes(i.type)&&isId(i.id))&&Number.isInteger(p.minutes)&&p.minutes>=5&&p.minutes<=120&&!!p.checked&&typeof p.checked==='object'&&Object.entries(p.checked).every(([d,v])=>isDay(d)&&v===true)&&optTime(p.deletedAt);
 export function validateState(s){
  const fail=()=>{throw Error('Onbekende of beschadigde back-up. Bestaande gegevens zijn behouden.');};
@@ -103,15 +112,26 @@ export function gradeWord(q,answer){
  for(const o of options){const full=noAccents(withoutBrackets(o));if(full.length>=4&&distance(noAccents(given),full)===1)return near('Bijna: een kleine spelfout.','Spelling');}
  return {points:0,pending:false,confidence:'hoog',category:'Fout',feedback:`Het goede antwoord is: ${q.answer}`};
 }
-// Turns a word list into questions. Direction 'ab' asks the first column, 'ba' the second.
+// A word list has two columns (huis = maison), or up to four for rows like irregular verbs (to be = was/were = been = zijn).
+export const wordValues=p=>[p.a,p.b,p.c,p.d];
+export const wordCols=w=>w.cols||[w.langA,w.langB];
+// Which column is Dutch: given by the list, otherwise the first column when the left language is Dutch.
+const dutchCol=w=>Number.isInteger(w.nlCol)?w.nlCol:w.langA==='Nederlands'?0:-1;
+export function wordDirections(w){const cols=wordCols(w),n=cols.length;if(n===2)return [{value:'ab',label:`${cols[0]} → ${cols[1]}`},{value:'ba',label:`${cols[1]} → ${cols[0]}`},{value:'both',label:'Beide richtingen'}];
+ const nl=dutchCol(w),out=[];
+ for(let j=1;j<n;j++)out.push({value:`0-${j}`,label:`${cols[0]} → ${cols[j]}`});
+ if(nl>0)for(let j=0;j<n;j++)if(j!==nl)out.push({value:`${nl}-${j}`,label:`${cols[nl]} → ${cols[j]}`});
+ out.push({value:'all',label:'Alles door elkaar'});return [...new Map(out.map(o=>[o.value,o])).values()];}
+// Turns a word list into questions. 'ab'/'ba' keep their ids so earlier progress still counts; other directions are 'i-j' (ask column i, answer column j).
 export function wordQuestions(list,direction='ab'){
- const dirs=direction==='both'?['ab','ba']:[direction];
- return dirs.flatMap(d=>list.pairs.map(p=>{const prompt=d==='ab'?p.a:p.b,answer=d==='ab'?p.b:p.a,first=wordAlternatives(answer)[0]||answer;
-  return {id:`${p.id}-${d}`,kind:'word',prompt,answer,dir:d,level:1,points:1,goal:list.title,hint:`Begint met „${first.replace(ARTICLES,'').charAt(0)}” · ${first.length} tekens`,explanation:`${p.a} = ${p.b}`,rubric:'1 punt voor de juiste vertaling, met lidwoord en accenten.',cite:{source:list.id,page:1,quote:p.a}};}));
+ const n=wordCols(list).length,nl=dutchCol(list);
+ const pairs=direction==='both'?(n===2?[[0,1],[1,0]]:wordDirections(list).filter(d=>d.value.includes('-')).map(d=>d.value.split('-').map(Number))):direction==='all'?wordDirections(list).filter(d=>d.value.includes('-')).map(d=>d.value.split('-').map(Number)):direction==='ab'?[[0,1]]:direction==='ba'?[[1,0]]:[direction.split('-').map(Number)];
+ return pairs.flatMap(([i,j])=>list.pairs.map(p=>{const v=wordValues(p),prompt=v[i],answer=v[j];if(!prompt?.trim()||!answer?.trim())return null;const first=wordAlternatives(answer)[0]||answer,key=i===0&&j===1?'ab':i===1&&j===0?'ba':`${i}${j}`;
+  return {id:`${p.id}-${key}`,kind:'word',prompt,answer,dir:key,promptForeign:i!==nl,answerForeign:j!==nl,level:1,points:1,goal:n>2?`${wordCols(list)[i]} → ${wordCols(list)[j]}`:list.title,hint:`Begint met „${first.replace(ARTICLES,'').charAt(0)}” · ${first.length} tekens`,explanation:v.filter(Boolean).join(' – '),rubric:'1 punt voor het juiste antwoord, met lidwoord en accenten.',cite:{source:list.id,page:1,quote:v[0]}};}).filter(Boolean));
 }
 // Reads "huis = maison", "huis - maison" or "huis<TAB>maison", one pair per line.
 export function parsePairs(textValue){
- return String(textValue).split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>{const m=l.split(/\s*(?:=|\t|\s[-–—]\s|:)\s*/);return m.length>=2?{a:m[0].trim(),b:m.slice(1).join(' / ').trim()}:null;}).filter(p=>p&&p.a&&p.b).slice(0,500);
+ return String(textValue).split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>{const m=l.split(/\s*(?:=|\t|\s[-–—]\s|:)\s*/).map(x=>x.trim());if(m.length<2)return null;const v=m.slice(0,4);if(m.length>4)v[3]=m.slice(3).join(' / ');const p={a:v[0],b:v[1]};if(v[2])p.c=v[2];if(v[3])p.d=v[3];return p;}).filter(p=>p&&p.a&&p.b).slice(0,500);
 }
 
 // --- Beheersing: a question is mastered when the latest independent answer to it was fully right.

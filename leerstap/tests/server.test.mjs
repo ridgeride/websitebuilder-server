@@ -304,7 +304,7 @@ test('AI checks use the book: photo grading and explanations get the cited book 
  const old=globalThis.fetch;const sent=[];
  globalThis.fetch=async(url,o)=>{const body=JSON.parse(o.body);sent.push(body);const name=body.text.format.name;let out;
   if(name==='leerstof'){out=demoModule();const doc=JSON.parse(body.input[0].content[0].text).pages[0];for(const x of [...out.chapters,...out.questions])x.cite={source:doc.id,page:1,quote:doc.text.slice(0,40)};out.chapters[0].method='Schrijf eerst het getal als kwadraat.';}
-  else out={nakijken:{points:2,confidence:'hoog',readable:true,feedback:'Goed antwoord.',methodMatch:'andere methode, wel juist',methodNote:'Je rekende met de rekenmachine; het boek schrijft 81 eerst als 9². Allebei juist.',steps:[{text:'√81 = 9',ok:true}]},uitleg:{verdict:'bijna',good:['Je noemt het kwadraat'],missing:['niet-negatief'],beyondBook:['Je noemt complexe getallen'],tip:'Kijk in je boek bij de definitie.'},woordjes:{langA:'Nederlands',langB:'Frans',pairs:[{a:'het huis',b:'la maison',page:1},{a:'de kat',b:'le chat',page:1},{a:'de muis',b:'la souris',page:1}],warnings:[]}}[name];
+  else out={nakijken:{points:2,confidence:'hoog',readable:true,feedback:'Goed antwoord.',methodMatch:'andere methode, wel juist',methodNote:'Je rekende met de rekenmachine; het boek schrijft 81 eerst als 9². Allebei juist.',steps:[{text:'√81 = 9',ok:true}]},uitleg:{verdict:'bijna',good:['Je noemt het kwadraat'],missing:['niet-negatief'],beyondBook:['Je noemt complexe getallen'],tip:'Kijk in je boek bij de definitie.'},woordjes:{langA:'Nederlands',langB:'Frans',cols:[],nlCol:0,rows:[{values:['het huis','la maison'],page:1},{values:['de kat','le chat'],page:1},{values:['de muis','la souris'],page:1}],warnings:[]}}[name];
   return Response.json({status:'completed',usage:{input_tokens:100,output_tokens:50},output:[{content:[{type:'output_text',text:JSON.stringify(out)}]}]});};
  try{
   const photo='data:image/jpeg;base64,'+Buffer.from('foto').toString('base64');
@@ -328,7 +328,7 @@ test('AI checks use the book: photo grading and explanations get the cited book 
   const wdoc=(await b.post('/api/documents',textDoc(words,'frans-h2.txt'))).body.document.id;
   const w=await b.post('/api/words-from-source',{documents:[wdoc]});assert.equal(w.status,200,JSON.stringify(w.body));
   assert.deepEqual(w.body.result.pairs.map(p=>[p.a,p.b]),[['het huis','la maison'],['de kat','le chat']],'"de muis" is not in the book and is dropped');
-  assert.match(w.body.result.warnings.join(' '),/1 woord\(je\)s stonden niet letterlijk in de bron/);assert.deepEqual(w.body.result.documents,[wdoc]);
+  assert.match(w.body.result.warnings.join(' '),/1 rij\(en\) stonden niet letterlijk in de bron/);assert.deepEqual(w.body.result.documents,[wdoc]);
   assert.match(sent[3].instructions,/Voeg nooit zelf woorden/);
   assert.equal((await b.post('/api/explain',{module:m.id,chapter:0,term:'Vierkantswortel',text:'Nog een keer proberen met meer woorden.'})).status,429,'monthly limit for checks');
   const s=(await b.get('/api/state')).body.usage;assert.equal(s.checks,3);assert.equal(s.analyses,1,'checks do not use up analyses');

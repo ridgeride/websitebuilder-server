@@ -18,7 +18,8 @@ const TEXT='Een vierkantswortel is de niet-negatieve waarde die in het kwadraat 
 const ai=http.createServer((req,res)=>{let body='';req.on('data',c=>body+=c);req.on('end',()=>{
  const name=JSON.parse(body).text.format.name,reply=o=>{res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'completed',usage:{input_tokens:300,output_tokens:100},output:[{content:[{type:'output_text',text:JSON.stringify(o)}]}]}));};
  if(name==='nakijken')return reply({points:3,confidence:'middel',readable:true,feedback:'Je rekent beide kanten goed uit. Schrijf de conclusie nog iets duidelijker op.',methodMatch:'zelfde methode',methodNote:'',steps:[{text:'√25 = 5',ok:true},{text:'3 + 4 = 7',ok:true}]});
- if(name==='woordjes'){const pages=JSON.parse(body).input[0].content.filter(c=>c.type==='input_text').map(c=>c.text).join('\n');assert.match(pages,/le chat/);return reply({langA:'Nederlands',langB:'Frans',pairs:[{a:'de kat',b:'le chat',page:1},{a:'de hond',b:'le chien',page:1},{a:'het huis',b:'la maison',page:1},{a:'de muis',b:'la souris',page:1}],warnings:[]});}
+ if(name==='woordjes'&&JSON.parse(body).input[0].content.some(c=>/past simple/.test(c.text||'')))return reply({langA:'Engels',langB:'Nederlands',cols:['infinitive','past simple','past participle','translation'],nlCol:3,rows:[{values:['to be','was/were','been','zijn; worden'],page:1},{values:['to eat','ate','eaten','eten'],page:1},{values:['to swim','swam','swum','zwemmen'],page:1}],warnings:[]});
+ if(name==='woordjes'){const pages=JSON.parse(body).input[0].content.filter(c=>c.type==='input_text').map(c=>c.text).join('\n');assert.match(pages,/le chat/);return reply({langA:'Nederlands',langB:'Frans',cols:[],nlCol:0,rows:[{values:['de kat','le chat'],page:1},{values:['de hond','le chien'],page:1},{values:['het huis','la maison'],page:1},{values:['de muis','la souris'],page:1}],warnings:[]});}
  if(name==='proefwerk'){const qs=JSON.parse(JSON.parse(body).input[0].content[0].text).vragen;return reply({readable:true,overall:'Wortels uitrekenen gaat goed. Let op bij het combineren van wortels.',answers:qs.map(q=>({number:q.nummer,answerSeen:q.nummer<=2?q.modelantwoord:'1',points:q.nummer<=2?q.maximumPunten:0,confidence:'hoog',feedback:q.nummer<=2?'Goed.':'Dit klopt niet. Reken eerst elke wortel apart uit.',methodMatch:'zelfde methode',methodNote:''}))});}
  if(name==='uitlezen')return reply({pages:[{page:1,text:'§1.2 Klimaat\nHet klimaat is het gemiddelde weer over een periode van dertig jaar in een gebied.\n[Afbeelding: klimaatgrafiek van Utrecht]',unreadable:false}]});
  if(name==='controle')return reply({pages:[{page:1,issues:[{found:'1.2 Klimaat',should:'§1.2 Klimaat',why:'paragraafteken'},{found:'bestaat niet',should:'x',why:'verzonnen'}]}]});
@@ -269,6 +270,18 @@ try{
   const overflow=await kid.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);assert.ok(overflow<=0,'no horizontal scroll on a phone');
   await kid.click('[data-action="nav"][data-route="planner"]');await kid.waitForSelector('h2:has-text("Toets wiskunde H3")');await shot(kid,'25-planner-telefoon');
   const o2=await kid.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);assert.ok(o2<=0,'planner fits on a phone');
+ });
+ await step('Rijtjes met vier kolommen (onregelmatige werkwoorden) via Maak woordenlijst, en oefenen infinitive → past simple',async()=>{
+  await parent.click('[data-action="nav"][data-route="library"]');await parent.selectOption('#up-subject','Engels');await parent.fill('#up-chapter','Irregular verbs');
+  await parent.setInputFiles('#files',{name:'blz-213.txt',mimeType:'text/plain',buffer:Buffer.from('14 Irregular verbs\ninfinitive past simple past participle translation\nto be was/were been zijn; worden\nto eat ate eaten eten')});
+  const map='.card.map:has-text("Irregular verbs")';await parent.waitForSelector(`${map} [data-action="map-words"]`);await parent.click(`${map} [data-action="map-words"]`);
+  await parent.waitForSelector('#toast:has-text("2 rijen gevonden")');await parent.waitForSelector('#toast:has-text("1 rij(en) stonden niet letterlijk")');
+  assert.equal(await parent.inputValue('#wl-cols'),'infinitive = past simple = past participle = translation');assert.match(await parent.inputValue('#wl-pairs'),/^to be = was\/were = been = zijn; worden/);
+  await click(parent,'words-save');const card='article:has(h3:has-text("Irregular verbs"))';await parent.waitForSelector(`${card} :text("infinitive · past simple · past participle · translation")`);
+  await parent.selectOption(`${card} select`,'0-1');parent.once('dialog',d=>d.accept());await parent.click(`${card} [data-action="words-start"]`);await parent.waitForSelector('text=van 2 beheerst');
+  for(let t=0;t<6;t++){const p=await prompt(parent);assert.match(await parent.textContent('label[for="answer"]'),/past simple/);await parent.fill('#answer',{'to be':'was','to eat':'ate'}[p]);await click(parent,'check');await parent.waitForSelector('.feedback:has-text("Goed gedaan")');
+   await parent.waitForSelector('[data-action="next"],[data-action="finish"]');if(await parent.$('[data-action="finish"]'))break;await click(parent,'next');await parent.waitForSelector('[data-action="check"]');}
+  await click(parent,'finish');await parent.waitForSelector('.pill:has-text("Woordjes")');
  });
  await step('Zelf een vak toevoegen dat niet in de lijst staat',async()=>{
   await parent.click('[data-action="nav"][data-route="library"]');assert.ok(await parent.$('#up-subject option:text-is("Natuur & techniek")'),'common subjects are listed');
