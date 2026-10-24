@@ -84,3 +84,10 @@ test('Week summary and mastery count independent answers only',async()=>{
  assert.deepEqual([...masteredIds(attempts,'k')],['x']);assert.equal(readiness([q,{id:'y'}],attempts,'k').pct,50);
  const w=weekSummary(attempts,'k',now);assert.deepEqual(w.days,[false,false,true,true,false,false,false]);assert.equal(w.questions,3);
 });
+
+test('Units after a number are accepted, and ³ works in a calculation',async()=>{
+ const {grade,numberExpr}=await import('../src/core.js');
+ const q={kind:'numeric',answer:'2000',points:1,explanation:'2 dm³ = 2000 cm³'};
+ for(const a of ['2000','2000 cm³','2000cm3','2000 mL','2.000'.replace('.','')])assert.equal(grade(q,a).points,1,a);
+ assert.equal(grade(q,'200 cm³').points,0);assert.equal(numberExpr('10³'),1000);assert.equal(grade({...q,answer:'1,5'},'1,5 kg').points,1);
+});

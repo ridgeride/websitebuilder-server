@@ -1,4 +1,4 @@
-# Leerstap 0.9.3
+# Leerstap 0.9.4
 
 Een Nederlandstalige leerapp voor leerlingen (vmbo t/m gymnasium) en hun ouders. Upload je leerstof, laat AI er een samenvatting en oefenvragen van maken, en oefen tot je het snapt. Fouten komen terug, eerst met uitleg. Proefwerken kun je online maken of als PDF printen, met opgaven en antwoorden apart.
 
@@ -38,7 +38,7 @@ Vereist Node.js 22.13 of nieuwer.
 
 ```text
 npm ci
-npm test            # 41 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
+npm test            # 43 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
 npm run build       # bouwt dist/public
 npm start           # http://127.0.0.1:4173, gegevens in ./data
 npm run test:e2e    # volledige route in een echte browser (ouder én kind), met een nep-AI

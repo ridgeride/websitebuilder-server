@@ -1,5 +1,15 @@
 # Wijzigingen
 
+## 0.9.4 — 24 oktober 2026
+
+- **Bladzijden op volgorde van het boek.** Bij het uitlezen wordt het gedrukte paginanummer herkend (aanpasbaar in het controlescherm). De samenvatting krijgt alle bladzijden van een hoofdstuk op paginanummer, ongeacht de uploadvolgorde, en weet dat tekst doorloopt naar de volgende bladzijde. Bij het hoofdstuk staat "blz. 45–52", met een waarschuwing als er bladzijden ontbreken of dubbel zijn.
+- **Tot 60 bladzijden per hoofdstuk** zodra de tekst gecontroleerd is (foto’s: 30).
+- **Onthoud-blokken en kaders** (Onthoud, Let op, Regel, Definitie) worden als [Onthoud: …] uitgelezen en krijgen voorrang in samenvatting en vragen, met rekenvragen bij eenheden.
+- **Eenheden goed overgenomen:** m³, dm³, cm³, m² in plaats van m3. Bij rekenvragen mag een eenheid achter het getal ("2000 cm³"); ³ werkt ook in een berekening.
+- **Plaatjes:** onderschrift als [Figuur N: …], plaatjes met leerstof als [Afbeelding: …] met de gegevens, sfeerfoto’s als [Foto: …]. De samenvatting gebruikt alleen plaatjes met leerstof; er komen geen vragen over sfeerfoto’s. Knop *Beschrijvingen van plaatjes weghalen* in het controlescherm.
+- **Alles buiten de bladzijde** (ander papier, tafel) wordt bij het uitlezen overgeslagen; de AI-controle stelt voor om het weg te halen.
+- Lezen op het apparaat valt sneller terug op de AI, en de knop daarvoor is verborgen als de AI beschikbaar is.
+
 ## 0.9.3 — 22 oktober 2026
 
 - **AI controleert de uitgelezen tekst met de foto.** In het controlescherm legt de AI de tekst naast de foto en noemt concrete verschillen (verkeerd nummer, ontbrekende regel, fout woord of getal). Per verschil kies je *Toepassen* of *Negeren*, of *Alles toepassen*. De AI past zelf niets aan. Opnieuw laten controleren kan na eigen verbeteringen. Telt als één AI-controle per bestand.

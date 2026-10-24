@@ -3,7 +3,7 @@ export const uid=()=>crypto.randomUUID();
 export const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Deliberately small arithmetic grammar: no eval, variables, assignments or executable expressions.
 export function numberExpr(input){
- let s=String(input).trim().replace(/,/g,'.').replace(/²/g,'^2').replace(/×|·/g,'*').replace(/÷/g,'/').replace(/√/g,'sqrt').replace(/\s/g,'');
+ let s=String(input).trim().replace(/,/g,'.').replace(/²/g,'^2').replace(/³/g,'^3').replace(/×|·/g,'*').replace(/÷/g,'/').replace(/√/g,'sqrt').replace(/\s/g,'');
  if(s.length>150||!s)throw Error('Gebruik een getal of een rekenuitdrukking.');
  const tokens=s.match(/sqrt|\d+(?:\.\d+)?|[()+*/^\-]/g)||[];
  if(tokens.join('')!==s)throw Error('Deze notatie vraagt om ouderreview.');
@@ -16,7 +16,9 @@ export function numberExpr(input){
 export function grade(q,answer,steps=''){
  if(!answer.trim()&&!steps.trim())return {points:0,pending:false,confidence:'hoog',feedback:'Geen antwoord ingevuld.',category:'Niet ingevuld'};
  if(q.kind==='word')return gradeWord(q,answer);
- if(q.kind==='numeric')try{const a=numberExpr(answer),b=numberExpr(q.answer);if(Math.abs(a-b)<=1e-8*Math.max(1,Math.abs(b)))return {points:q.points,pending:false,confidence:'hoog',feedback:q.explanation,category:'Goed'};
+ // A unit after the number ("2000 cm³", "1,5 kg") is allowed; the number is what is checked.
+ const withoutUnit=s=>{try{return numberExpr(s);}catch(e){const m=String(s).trim().match(/^(.*?[\d)])\s*[A-Za-zµ°%][A-Za-zµ°%²³/0-9]*\.?$/);if(m)return numberExpr(m[1]);throw e;}};
+ if(q.kind==='numeric')try{const a=withoutUnit(answer),b=withoutUnit(q.answer);if(Math.abs(a-b)<=1e-8*Math.max(1,Math.abs(b)))return {points:q.points,pending:false,confidence:'hoog',feedback:q.explanation,category:'Goed'};
  return {points:0,pending:!!steps.trim(),confidence:steps.trim()?'review nodig':'hoog',feedback:'De einduitkomst klopt nog niet. '+q.explanation,category:'Rekenfout'};
  }catch{}
  return {points:0,pending:true,confidence:'review nodig',feedback:'Een ouder beoordeelt inhoud, notatie en tussenstappen met het puntenmodel.',category:'Inhoud / uitwerking'};

@@ -398,6 +398,19 @@ test('Deleting material: a whole chapter or everything, with or without results;
  s=(await b.get('/api/state')).body;assert.equal(s.documents.length,0);assert.equal(s.attempts.length,0);assert.deepEqual(s.modules.map(m=>m.id),['demo']);
 });
 
+test('Pages are put in book order by their printed page number, whatever order they were uploaded in',async()=>{
+ const env=localEnv({OPENAI_API_KEY:'test'});const {b}=await family(env,'p@x.nl');await b.post('/api/family/consent',{consent:true});
+ const up=async(text,name)=>(await b.post('/api/documents',textDoc(text,name))).body.document.id;
+ const p48=await up('Bladzijde achtenveertig: volume en de maatcilinder.','b.txt'),p47=await up('Bladzijde zevenenveertig: massa en de weegschaal.','a.txt'),p49=await up('Bladzijde negenenveertig, zonder nummer.','c.txt');
+ assert.equal((await b.post(`/api/documents/${p48}/text`,{pages:[{page:1,text:'Bladzijde achtenveertig: volume en de maatcilinder.',bookPage:48}]})).body.document.bookPages[0],48);
+ await b.post(`/api/documents/${p47}/text`,{pages:[{page:1,text:'Bladzijde zevenenveertig: massa en de weegschaal.',bookPage:47}]});
+ assert.equal((await b.post(`/api/documents/${p49}/text`,{pages:[{page:1,text:'x',bookPage:'abc'}]})).body.document.bookPages[0],null,'nonsense is not a page number');
+ const old=globalThis.fetch;let sent;globalThis.fetch=async(url,o)=>{sent=JSON.parse(o.body);return Response.json({status:'completed',usage:{input_tokens:1,output_tokens:1},output:[{content:[{type:'output_text',text:'{}'}]}]});};
+ try{await b.post('/api/analyse',{documents:[p48,p49,p47],subject:'Natuur & techniek',level:'1 havo'});}finally{globalThis.fetch=old;}
+ const pages=JSON.parse(sent.input[0].content[0].text).pages;assert.deepEqual(pages.map(p=>p.bladzijdeInBoek??null),[47,48,null],'numbered pages first, in book order');
+ assert.match(sent.instructions,/doorlopen op de volgende pagina/);assert.match(sent.instructions,/\[Onthoud: …\]/);
+});
+
 test('Export, import of an old device backup, and deleting the whole family',async()=>{
  const env=localEnv();const {b,state}=await family(env,'p@x.nl');
  const id=(await b.post('/api/documents',textDoc('Bron voor de export.'))).body.document.id;

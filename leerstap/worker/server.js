@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,verifyText,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.9.3';
+export const APP_VERSION='0.9.4';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
@@ -128,8 +128,8 @@ async function transcribeDocument(env,user,id){
  const d=await getItem(env,user.family,'document',id);if(d?.data.imagesRemoved)fail(400,'Deze bron heeft geen foto’s meer om uit te lezen.');
  const pages=await documentPages(env,user,id),photos=pages.filter(p=>p.image);if(!photos.length)fail(400,'Deze bron heeft geen foto’s om uit te lezen.');
  const result=await aiCheck(env,user,()=>transcribe(env,{pages:photos}));
- for(const t of result.pages){const p=pages.find(x=>x.page===t.page);if(p&&t.text.trim())p.text=t.text;}
- await savePages(env,user,id,pages);return {pages:pages.map(({page,text,image})=>({page,text,image})),unreadable:result.pages.filter(p=>p.unreadable).map(p=>p.page),...await patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'ai'})};
+ for(const t of result.pages){const p=pages.find(x=>x.page===t.page);if(p&&t.text.trim())p.text=t.text;if(p&&t.bookPage)p.bookPage=t.bookPage;}
+ await savePages(env,user,id,pages);return {pages:pages.map(({page,text,image,bookPage})=>({page,text,image,bookPage})),unreadable:result.pages.filter(p=>p.unreadable).map(p=>p.page),...await patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'ai',bookPages:pages.map(p=>p.bookPage||null)})};
 }
 async function verifyDocument(env,user,id,input){
  const pages=await documentPages(env,user,id),photos=pages.filter(p=>p.image);if(!photos.length)fail(400,'Er is geen foto om de tekst mee te vergelijken.');
@@ -140,11 +140,14 @@ async function saveText(env,user,id,input){
  const pages=await documentPages(env,user,id),edits=input.pages;if(!Array.isArray(edits)||!edits.length)fail(400,'Geen tekst ontvangen.');
  for(const e of edits){const p=pages.find(x=>x.page===e.page);if(!p||typeof e.text!=='string')fail(400,'Onbekende bladzijde.');if(e.text.length>30000)fail(400,'De tekst van één bladzijde mag maximaal 30.000 tekens zijn.');p.text=e.text;
   // A photo turned the right way up on the device replaces the sideways one.
-  if(e.image!==undefined){if(!p.image||!isImage(e.image))fail(400,'Ongeldige foto.');p.image=e.image;}}
+  if(e.image!==undefined){if(!p.image||!isImage(e.image))fail(400,'Ongeldige foto.');p.image=e.image;}
+  // The page number printed in the book puts pages in order, whatever order they were uploaded in.
+  if(e.bookPage!==undefined)p.bookPage=Number.isInteger(e.bookPage)&&e.bookPage>0&&e.bookPage<2000?e.bookPage:null;}
+ const bookPages=pages.map(p=>p.bookPage||null);
  await savePages(env,user,id,pages);
  // Text read on the device is stored first and checked afterwards, just like text read by the AI.
- if(input.verified===false)return patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'apparaat'});
- await audit(env,user,'text-verified',id);return patchDocument(env,user,id,{verified:Date.now()});
+ if(input.verified===false)return patchDocument(env,user,id,{transcribed:Date.now(),verified:null,readBy:'apparaat',bookPages});
+ await audit(env,user,'text-verified',id);return patchDocument(env,user,id,{verified:Date.now(),bookPages});
 }
 async function dropImages(env,user,id){
  const d=await getItem(env,user.family,'document',id);if(!d)fail(404,'Bron niet gevonden.');if(!d.data.verified)fail(400,'Controleer eerst de tekst. Pas daarna kunnen de foto’s weg.');
@@ -160,12 +163,14 @@ async function documentPages(env,user,id){if(!(await getItem(env,user.family,'do
 async function analyse(env,user,input){
  if(input.consent===true&&user.role==='parent'&&!user.aiConsent){await q(env,'UPDATE families SET ai_consent_at=? WHERE id=?',Date.now(),user.family).run();await audit(env,user,'ai-consent','on');user.aiConsent=true;}
  if(!user.aiConsent)fail(403,user.role==='parent'?'Geef eerst toestemming om leerstof naar de AI-dienst te sturen.':'Een ouder moet eerst toestemming geven voor AI-analyse (Gezin & instellingen).');
- const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>30||!ids.every(isId))fail(400,'Selecteer eerst een bron.');
+ const ids=input.documents;if(!Array.isArray(ids)||!ids.length||ids.length>60||!ids.every(isId))fail(400,'Selecteer eerst een bron.');
  // Re-analysing a chapter after adding pages replaces that module instead of making a second copy.
  const old=input.replace?isId(input.replace)&&await getItem(env,user.family,'module',input.replace):null;if(input.replace&&(!old||old.data.demo))fail(404,'De leerstof die je wilt bijwerken bestaat niet meer.');
  const used=await q(env,'SELECT analyses FROM usage WHERE family_id=? AND month=?',user.family,month()).first(),max=limit(env,'AI_MONTHLY_LIMIT',30);
  if((used?.analyses||0)>=max)fail(429,`Jullie maandlimiet van ${max} analyses is bereikt. Volgende maand kan het weer.`);
  const docs=[],pages=[];for(const id of ids){const d=await getItem(env,user.family,'document',id);if(!d||d.data.deletedAt)fail(404,'Een geselecteerde bron bestaat niet meer.');docs.push(d.data);pages.push(...await documentPages(env,user,id));}
+ // Pages with a printed page number go in book order; the rest keep their upload order, after the numbered ones.
+ if(pages.some(p=>p.bookPage))pages.sort((a,b)=>(a.bookPage||1e6)-(b.bookPage||1e6));
  const record=usage=>q(env,'INSERT INTO usage(family_id,month,analyses,input_tokens,output_tokens) VALUES(?,?,1,?,?) ON CONFLICT(family_id,month) DO UPDATE SET analyses=analyses+1,input_tokens=input_tokens+excluded.input_tokens,output_tokens=output_tokens+excluded.output_tokens',user.family,month(),usage?.input||0,usage?.output||0).run();
  let result;try{result=await analysePages(pages,{subject:input.subject,level:input.level},env);}catch(e){if(e.usage)await record(e.usage);throw e;}
  await record(result.usage);
