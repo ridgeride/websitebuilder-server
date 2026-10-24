@@ -38,7 +38,7 @@ Vereist Node.js 22.13 of nieuwer.
 
 ```text
 npm ci
-npm test            # 45 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
+npm test            # 44 tests: rekenen, nakijken, herhalen, accounts, isolatie tussen gezinnen, beheer, AI-contract
 npm run build       # bouwt dist/public
 npm start           # http://127.0.0.1:4173, gegevens in ./data
 npm run test:e2e    # volledige route in een echte browser (ouder én kind), met een nep-AI
