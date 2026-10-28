@@ -2,7 +2,7 @@ import {uid,isId,demoModule,validModule,validDocumentMeta,validAttempt,validSess
 import {analysePages,checkWork,explainFeedback,wordsFromSource,gradePaper,transcribe,verifyText,isImage,HttpError} from './analyse.js';
 import {hashSecret,verifySecret,createSession,readSession,sessionCookie,recoveryCode,inviteCode,throttled,countFailure,clearThrottle} from './auth.js';
 
-export const APP_VERSION='0.9.8';
+export const APP_VERSION='0.9.9';
 const PAUSED='Dit gezinsaccount is gepauzeerd. Neem contact op met Leerstap als je weer wilt meedoen.';
 const MAX_ITEM=1500000,MAX_UPLOAD=40000000,MINUTE=60000;
 const SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];

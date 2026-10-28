@@ -1,5 +1,11 @@
 # Wijzigingen
 
+## 0.9.9 — 28 oktober 2026
+
+- Hersteld: **"Het AI-model is niet beschikbaar"** bij woordjes uit de bron en *Leg het uit*. OpenAI heeft `gpt-4.1-nano` stopgezet. Woordjes lezen gebruikt nu het hoofdmodel (nauwkeuriger bij lange rijtjes), en als een goedkoper model (`OPENAI_MODEL_LIGHT`, nu niet ingesteld) ooit verdwijnt, neemt het hoofdmodel het vanzelf over.
+- **Woordenlijst staat meteen klaar.** *Maak woordenlijst* en *Woordjes uit de bron halen* slaan de lijst zelf op, met alle kolommen uit het boek; je kunt direct oefenen. Overtypen hoeft niet meer; aanpassen kan nog met *Bewerken*.
+- Een woordenlijst kan aan meer dan 5 bestanden gekoppeld zijn (tot 60).
+
 ## 0.9.8 — 24 oktober 2026
 
 - Hersteld: **"Broncitaat niet teruggevonden" blokkeerde de hele analyse.** Hoofdletters, leestekens en "…" in een citaat tellen niet meer mee. Is een citaat een beetje anders dan het boek, dan neemt Leerstap het langste stuk dat wél letterlijk op de bladzijde staat. Een vraag waarvan het citaat nergens staat, wordt weggelaten (met een melding); de rest van de leerstof blijft. Alleen als er niets controleerbaars overblijft, stopt de analyse.

@@ -19,12 +19,13 @@ const isImage=v=>typeof v==='string'&&v.length<=8000000&&/^data:image\/(png|jpeg
 export {isImage};
 // One structured call to the Responses API; every AI feature goes through here so timeouts, errors and usage are handled the same way.
 async function callModel(env,{instructions,content,schema,name,maxTokens=2500,light=false}){
- // Simple text-only tasks use the cheaper model; anything with a photo or a grade uses the main one.
- const model=light&&!content.some(c=>c.type==='input_image')?env.OPENAI_MODEL_LIGHT||'gpt-4.1-nano':env.OPENAI_MODEL||'gpt-4.1-mini';
+ // Simple text-only tasks may use a cheaper model (OPENAI_MODEL_LIGHT). Models get retired: if that one is gone, the main model takes over.
+ const main=env.OPENAI_MODEL||'gpt-4.1-mini',cheap=light&&env.OPENAI_MODEL_LIGHT&&!content.some(c=>c.type==='input_image')?env.OPENAI_MODEL_LIGHT:null;
  if(!env.OPENAI_API_KEY)throw new HttpError(503,'AI is nog niet gekoppeld.');
- let response;
- try{response=await fetch((env.OPENAI_BASE_URL||'https://api.openai.com/v1')+'/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({model,store:false,max_output_tokens:maxTokens,instructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name,strict:true,schema}}})});}
- catch(e){throw new HttpError(504,e.name==='TimeoutError'?'De AI deed er te lang over. Probeer het opnieuw.':'De AI-dienst is niet bereikbaar. Probeer het later opnieuw.');}
+ const send=async model=>{try{return await fetch((env.OPENAI_BASE_URL||'https://api.openai.com/v1')+'/responses',{method:'POST',headers:{Authorization:`Bearer ${env.OPENAI_API_KEY}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(60000),body:JSON.stringify({model,store:false,max_output_tokens:maxTokens,instructions,input:[{role:'user',content}],text:{format:{type:'json_schema',name,strict:true,schema}}})});}
+  catch(e){throw new HttpError(504,e.name==='TimeoutError'?'De AI deed er te lang over. Probeer het opnieuw.':'De AI-dienst is niet bereikbaar. Probeer het later opnieuw.');}};
+ let response=await send(cheap||main);
+ if(cheap&&!response.ok&&[400,404].includes(response.status)&&/model/i.test(await response.clone().text())){console.error(`model ${cheap} niet beschikbaar, val terug op ${main}`);response=await send(main);}
  if(!response.ok)throw await providerError(response);
  const result=await response.json(),usage={input:result.usage?.input_tokens||0,output:result.usage?.output_tokens||0};
  try{if(result.status!=='completed')throw 0;return {data:JSON.parse(result.output.flatMap(o=>o.content||[]).filter(c=>c.type==='output_text').map(c=>c.text).join('')),usage};}
@@ -88,7 +89,7 @@ export async function wordsFromSource(env,{pages}){
  const instructions=`Haal de woordenlijst of de rijtjes (woorden of zinnetjes met hun vertaling, of tabellen zoals onregelmatige werkwoorden) uit de bronpagina’s van een lesboek. ${DATA_ONLY} Neem uitsluitend wat letterlijk in de bron staat, precies zoals het er staat: met lidwoorden, accenten en hoofdletters. Voeg nooit zelf woorden, vertalingen, lidwoorden of voorbeelden toe en verbeter niets. cols zijn de kolomkoppen zoals in het boek (2 tot 4, bijvoorbeeld infinitive, past simple, past participle, translation); staan er geen koppen, noem dan de talen. Elke rij geeft values in die volgorde. nlCol is het nummer (vanaf 0) van de Nederlandse kolom, of -1 als er geen is. Staan er twee lijsten naast elkaar op de bladzijde (zoals bij phrasal verbs), geef dan elke rij apart. Uitleg, voorbeeldzinnen en grammaticaregels zijn geen woordenlijst: laat die weg. Wat je niet goed kunt lezen, laat je weg en meld je in warnings. Geen woordenlijst in de bron: lege rows en een warning. Maximaal 400 rijen.`;
  const content=[{type:'input_text',text:'Bronpagina’s:'}];
  for(const p of pages.slice(0,10)){if(p.text?.trim())content.push({type:'input_text',text:`Pagina ${p.page}:\n${p.text.slice(0,20000)}`});if(p.image&&(p.text||'').trim().length<60)content.push({type:'input_text',text:`Foto van pagina ${p.page}:`},{type:'input_image',image_url:p.image,detail:'high'});}
- const {data,usage}=await callModel(env,{instructions,content,schema,name:'woordjes',maxTokens:12000,light:true});
+ const {data,usage}=await callModel(env,{instructions,content,schema,name:'woordjes',maxTokens:16000});
  const cols=data.cols.slice(0,4).map(c=>String(c).trim().slice(0,60)).filter(Boolean),n=Math.max(2,Math.min(4,cols.length||2));
  // Text pages: every value must literally be on the page. Photo-only pages cannot be checked here, so the pupil is asked to compare.
  let dropped=0,unchecked=0;const pairs=[];

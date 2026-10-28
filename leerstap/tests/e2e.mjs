@@ -196,11 +196,9 @@ try{
   await parent.waitForSelector('.card.map:has-text("H2 woordjes")');await saved(parent);
   await parent.click('[data-action="nav"][data-route="words"]');await parent.waitForSelector('text=Nog geen woordenlijsten');
   const all=parent.locator('.wl-all:not([data-group])');await all.check();assert.equal(await parent.locator('input[name="wl-doc"]:checked').count(),await parent.locator('input[name="wl-doc"]').count(),'select all');await all.uncheck();assert.equal(await parent.locator('input[name="wl-doc"]:checked').count(),0);
-  const wm=parent.locator('.wl-map',{hasText:'frans-h2-woordjes.txt'});await wm.locator('summary').click();await wm.locator('label',{hasText:'frans-h2-woordjes.txt'}).locator('input').check();await click(parent,'words-source');
-  await parent.waitForSelector('#toast:has-text("3 woordjes gevonden")');await parent.waitForSelector('#toast:has-text("niet letterlijk in de bron")');
-  const pairs=await parent.inputValue('#wl-pairs');assert.ok(!pairs.includes('souris'),'a word that is not in the book is not added');assert.equal(pairs.split('\n').length,3);
-  assert.equal(await parent.inputValue('#wl-b'),'Frans');await parent.fill('#wl-title','Frans H2');await shot(parent,'17-woordjes-uit-bron');await click(parent,'words-save');
-  await parent.waitForSelector('h3:has-text("Frans H2")');await parent.waitForSelector('text=Uit je boek: frans-h2-woordjes.txt');
+  const wm=parent.locator('.wl-map',{hasText:'frans-h2-woordjes.txt'});await wm.locator('summary').click();await wm.locator('label',{hasText:'frans-h2-woordjes.txt'}).locator('input').check();await parent.fill('#wl-title','Frans H2');await click(parent,'words-source');
+  await parent.waitForSelector('#toast:has-text("klaar: 3 woordjes uit je boek")');await parent.waitForSelector('#toast:has-text("niet letterlijk in de bron")');await shot(parent,'17-woordjes-uit-bron');
+  await parent.waitForSelector('h3:has-text("Frans H2")');assert.equal(await parent.evaluate(async()=>{const l=(await (await fetch('/api/state')).json()).wordlists.find(w=>w.title==='Frans H2');return l.subject+'|'+l.pairs.map(p=>p.b).join(',');}),'Frans|le chat,le chien,la maison','saved by itself, without souris');await parent.waitForSelector('text=Uit je boek: frans-h2-woordjes.txt');
   const map={'de kat':'le chat','de hond':'le chien','het huis':'la maison'};const id=await parent.getAttribute('[data-action="words-start"]','data-id');
   await click(parent,'words-start',`[data-id="${id}"]`);await parent.waitForSelector('text=van 3 beheerst');
   let first=true;
@@ -276,9 +274,8 @@ try{
   await parent.click('[data-action="nav"][data-route="library"]');await parent.selectOption('#up-subject','Engels');await parent.fill('#up-chapter','Irregular verbs');
   await parent.setInputFiles('#files',{name:'blz-213.txt',mimeType:'text/plain',buffer:Buffer.from('14 Irregular verbs\ninfinitive past simple past participle translation\nto be was/were been zijn; worden\nto eat ate eaten eten')});
   const map='.card.map:has-text("Irregular verbs")';await parent.waitForSelector(`${map} [data-action="map-words"]`);await parent.click(`${map} [data-action="map-words"]`);
-  await parent.waitForSelector('#toast:has-text("2 rijen gevonden")');await parent.waitForSelector('#toast:has-text("1 rij(en) stonden niet letterlijk")');
-  assert.equal(await parent.inputValue('#wl-cols'),'infinitive = past simple = past participle = translation');assert.match(await parent.inputValue('#wl-pairs'),/^to be = was\/were = been = zijn; worden/);
-  await click(parent,'words-save');const card='article:has(h3:has-text("Irregular verbs"))';await parent.waitForSelector(`${card} :text("infinitive · past simple · past participle · translation")`);
+  await parent.waitForSelector('#toast:has-text("klaar: 2 rijen")');await parent.waitForSelector('#toast:has-text("1 rij(en) stonden niet letterlijk")');
+  const card='article:has(h3:has-text("Irregular verbs"))';await parent.waitForSelector(`${card} :text("infinitive · past simple · past participle · translation")`);
   await parent.selectOption(`${card} select`,'0-1');parent.once('dialog',d=>d.accept());await parent.click(`${card} [data-action="words-start"]`);await parent.waitForSelector('text=van 2 beheerst');
   for(let t=0;t<6;t++){const p=await prompt(parent);assert.match(await parent.textContent('label[for="answer"]'),/past simple/);await parent.fill('#answer',{'to be':'was','to eat':'ate'}[p]);await click(parent,'check');await parent.waitForSelector('.feedback:has-text("Goed gedaan")');
    await parent.waitForSelector('[data-action="next"],[data-action="finish"]');if(await parent.$('[data-action="finish"]'))break;await click(parent,'next');await parent.waitForSelector('[data-action="check"]');}

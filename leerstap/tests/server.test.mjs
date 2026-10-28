@@ -298,11 +298,11 @@ test('Meldingen: anyone signed in can send an idea, question or problem; the adm
 });
 
 test('AI checks use the book: photo grading and explanations get the cited book page and method; words only from the uploaded source',async()=>{
- const env=localEnv({OPENAI_API_KEY:'test',AI_CHECK_LIMIT:'3'});const {b}=await family(env,'p@x.nl');
+ const env=localEnv({OPENAI_API_KEY:'test',AI_CHECK_LIMIT:'3',OPENAI_MODEL_LIGHT:'oud-model'});const {b}=await family(env,'p@x.nl');
  const book='Een vierkantswortel is de niet-negatieve waarde die in het kwadraat het getal onder het wortelteken oplevert. Methode: schrijf eerst het getal als kwadraat.';
  const words='Woordenlijst H2\nhet huis - la maison\nde kat - le chat\nde hond - le chien';
  const old=globalThis.fetch;const sent=[];
- globalThis.fetch=async(url,o)=>{const body=JSON.parse(o.body);sent.push(body);const name=body.text.format.name;let out;
+ const retired=[];globalThis.fetch=async(url,o)=>{const body=JSON.parse(o.body);if(body.model==='oud-model'){retired.push(body.text.format.name);return Response.json({error:{code:'model_not_found',message:'The model has been deprecated'}},{status:404});}sent.push(body);const name=body.text.format.name;let out;
   if(name==='leerstof'){out=demoModule();const doc=JSON.parse(body.input[0].content[0].text).pages[0];for(const x of [...out.chapters,...out.questions])x.cite={source:doc.id,page:1,quote:doc.text.slice(0,40)};out.chapters[0].method='Schrijf eerst het getal als kwadraat.';}
   else out={nakijken:{points:2,confidence:'hoog',readable:true,feedback:'Goed antwoord.',methodMatch:'andere methode, wel juist',methodNote:'Je rekende met de rekenmachine; het boek schrijft 81 eerst als 9². Allebei juist.',steps:[{text:'√81 = 9',ok:true}]},uitleg:{verdict:'bijna',good:['Je noemt het kwadraat'],missing:['niet-negatief'],beyondBook:['Je noemt complexe getallen'],tip:'Kijk in je boek bij de definitie.'},woordjes:{langA:'Nederlands',langB:'Frans',cols:[],nlCol:0,rows:[{values:['het huis','la maison'],page:1},{values:['de kat','le chat'],page:1},{values:['de muis','la souris'],page:1}],warnings:[]}}[name];
   return Response.json({status:'completed',usage:{input_tokens:100,output_tokens:50},output:[{content:[{type:'output_text',text:JSON.stringify(out)}]}]});};
@@ -321,7 +321,7 @@ test('AI checks use the book: photo grading and explanations get the cited book 
   assert.ok(graded.some(c=>c.type==='input_text'&&c.text.startsWith('Bronpagina 1 uit het boek')&&c.text.includes('schrijf eerst het getal als kwadraat')),'the book page itself is sent');
   assert.match(sent[1].instructions,/andere, wiskundig of inhoudelijk juiste methode/);assert.equal(sent[1].store,false);
   const e=await b.post('/api/explain',{module:m.id,chapter:0,term:'Vierkantswortel',text:'Het getal dat keer zichzelf het getal onder de wortel geeft.'});assert.equal(e.status,200);
-  assert.equal(sent[1].model,'gpt-4.1-mini','grading uses the main model');assert.equal(sent[2].model,'gpt-4.1-nano','a text-only explanation check uses the cheaper model');
+  assert.equal(sent[1].model,'gpt-4.1-mini','grading uses the main model');assert.deepEqual(retired,['uitleg'],'a text-only explanation check tries the cheaper model first');assert.equal(sent[2].model,'gpt-4.1-mini','a retired cheaper model falls back to the main model');
   assert.deepEqual(e.body.result.beyondBook,['Je noemt complexe getallen']);assert.ok(sent[2].input[0].content.some(c=>c.text?.startsWith('Bronpagina 1')));
   // Words come only from an uploaded source, and only if they are literally in it.
   assert.equal((await b.post('/api/words-from-source',{documents:[]})).status,400);assert.equal((await b.post('/api/words-from-source',{documents:['onbekend']})).status,404);
