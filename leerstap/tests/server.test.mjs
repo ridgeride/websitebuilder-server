@@ -426,3 +426,16 @@ test('Export, import of an old device backup, and deleting the whole family',asy
  assert.equal((await browser(env).post('/api/login',{login:'p@x.nl',password:'een-sterk-wachtwoord'})).status,401);
  assert.equal((await env.FILES.list({prefix:''})).objects.length,0);
 });
+
+test('Words from several photos, each its own "page 1": every row is checked against the page it is on, in book order',async()=>{
+ const {wordsFromSource}=await import('../worker/analyse.js');
+ const pad=t=>t+'\n'+'-'.repeat(60);
+ const pages=[{page:1,bookPage:215,text:pad('to throw | threw | thrown | gooien')},{page:1,bookPage:213,text:pad('Infinitive | past simple | past participle | translation\nto be | was/were | been | zijn; worden')},{page:1,bookPage:214,text:pad('to eat | ate | eaten | eten')}];
+ const old=globalThis.fetch;let sent;
+ globalThis.fetch=async(url,o)=>{sent=JSON.parse(o.body);const out={langA:'Engels',langB:'Nederlands',cols:['infinitive','past simple','past participle','translation'],nlCol:3,warnings:[],rows:[{values:['to be','was/were','been','zijn; worden'],page:1},{values:['to eat','ate','eaten','eten'],page:2},{values:['to throw','threw','thrown','gooien'],page:3},{values:['to swim','swam','swum','zwemmen'],page:2}]};
+  return Response.json({status:'completed',usage:{input_tokens:1,output_tokens:1},output:[{content:[{type:'output_text',text:JSON.stringify(out)}]}]});};
+ try{const {result}=await wordsFromSource({OPENAI_API_KEY:'t'},{pages});
+  assert.deepEqual(result.pairs.map(p=>[p.a,p.page]),[['to be',213],['to eat',214],['to throw',215]]);assert.match(result.warnings.join(' '),/1 rij/);
+  assert.deepEqual(sent.input[0].content.slice(1).map(c=>c.text.split(':')[0]),['Pagina 1 (blz. 213 in het boek)','Pagina 2 (blz. 214 in het boek)','Pagina 3 (blz. 215 in het boek)']);
+ }finally{globalThis.fetch=old;}
+});

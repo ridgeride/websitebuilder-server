@@ -4,7 +4,7 @@ import {extract} from './files.js';
 import {makePDF} from './pdf.js';
 import {readPhotos,dataUrlBlob} from './ocr.js';
 import {call,records,diff,splitKey} from './sync.js';
-const VERSION='0.9.9',SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
+const VERSION='0.9.10',SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
 let state,me=null,usage={analyses:0,limit:0},revs={},synced=new Map(),drafts={},pageCache={},saveStatus='ok',retryTimer,installPrompt=null,oldVault=null,authView='login',recoveryShown=null,inviteRequired=false,route='home',profile=null,selected='demo',tab='summary',questionIndex=0,practiceResult=null,ai=false,parent=false,ephemeral=false,saveChain=Promise.resolve(),adminData=null,lastInvite=null,adminRecovery=null,inviteFromLink='',requestSent=false,uploadTarget=null,confidence={},editingList=null,explainOpen=null,explainText={},explainResult={};
 const $=s=>document.querySelector(s),root=$('#app');
 const btn=(text,action,cls='',extra='')=>`<button class="${cls}" data-action="${action}" ${extra}>${text}</button>`;
@@ -288,7 +288,10 @@ async function wordsFromDocs(ids,file){if(!file&&!ids.length)throw Error('Kies d
  for(const [id,l] of [['wl-a',x.langA],['wl-b',x.langB]])if(LANGS[l]!==undefined)$('#'+id).value=l;if(!$('#wl-title').value.trim())$('#wl-title').value=state.documents.find(d=>d.id===x.documents[0])?.name.replace(/\.[a-z]+$/i,'')||'';
  return x;}
 // Straight from the book into a list that is ready to practise; it can still be checked and edited afterwards with Bewerken.
-async function saveFound(x){const editing=editingList;await action($('[data-action="words-save"]'));const w=state.wordlists.find(l=>l.id===editing)||state.wordlists.at(-1);
+async function saveFound(x){
+ // Read again from the same pages: that list is replaced (same id, so practice results stay), not doubled.
+ if(!editingList){const same=state.wordlists.find(w=>!w.deletedAt&&w.documents?.length&&w.documents.every(id=>x.documents.includes(id))&&x.documents.every(id=>w.documents.includes(id)));if(same)editingList=same.id;}
+ const editing=editingList;await action($('[data-action="words-save"]'));const w=state.wordlists.find(l=>l.id===editing)||state.wordlists.at(-1);
  toast(`Woordenlijst „${w.title}” klaar: ${w.pairs.length} ${w.cols?'rijen':'woordjes'} uit je boek. Kies hieronder hoe je wilt oefenen. Klopt er iets niet? Pas het aan met Bewerken.${x.warnings.length?' '+x.warnings.join(' '):''}`);$('#dir-'+w.id)?.scrollIntoView({block:'center'});}
 async function parentMode(){if(parent)return true;toast('Dit kan alleen een ouder doen. Vraag je ouder om in te loggen.');return false;}
 async function showSource(id,page){let d=state.documents.find(d=>d.id===id),p=d&&(await pagesOf(d)).find(p=>p.page===page);if(id==='voorbeeld'){p={text:state.modules.find(m=>m.id==='demo')?.chapters[0].summary||'Voorbeeldles wortels'};}if(!p)throw Error('Bronpagina niet gevonden.');const dialog=document.createElement('dialog');dialog.innerHTML=`<div class="row between"><h2>${esc(d?.name||'Voorbeeldles · eigen uitleg')}</h2>${btn('Sluiten','close-dialog','ghost small')}</div><p class="muted">Pagina / tekstdeel ${page}</p>${d?`<div class="row">${Array.from({length:pageCount(d)},(_,i)=>btn(String(i+1),'source-page','ghost small',`data-id="${id}" data-page="${i+1}"`)).join('')}${btn('Download origineel','download-source','secondary small',`data-id="${id}"`)}</div>`:''}${p.image?`<img class="filepreview" src="${esc(p.image)}" alt="Geüploade bronpagina">`:''}<pre>${esc(p.text)}</pre>`;document.body.append(dialog);dialog.showModal();dialog.addEventListener('close',()=>dialog.remove());}

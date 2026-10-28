@@ -1,5 +1,10 @@
 # Wijzigingen
 
+## 0.9.10 — 28 oktober 2026
+
+- Hersteld: **van ~90 woordjes bleven er maar 6 over** bij meerdere foto’s. Elke foto is een eigen bestand en dus "pagina 1"; daardoor werd elke rij vergeleken met één en dezelfde foto, en alles van de andere bladzijden afgekeurd. Nu krijgen de bladzijden een eigen nummer in boekvolgorde (blz. 213, 214, 215 …) en wordt elke rij gezocht op de bladzijde waar hij staat, of anders op een van de andere gekozen bladzijden. Wat nergens letterlijk staat, valt nog steeds af.
+- Woordjes opnieuw uit dezelfde bladzijden halen **vervangt** de bestaande lijst (oefenresultaten blijven), in plaats van een tweede lijst te maken.
+
 ## 0.9.9 — 28 oktober 2026
 
 - Hersteld: **"Het AI-model is niet beschikbaar"** bij woordjes uit de bron en *Leg het uit*. OpenAI heeft `gpt-4.1-nano` stopgezet. Woordjes lezen gebruikt nu het hoofdmodel (nauwkeuriger bij lange rijtjes), en als een goedkoper model (`OPENAI_MODEL_LIGHT`, nu niet ingesteld) ooit verdwijnt, neemt het hoofdmodel het vanzelf over.
