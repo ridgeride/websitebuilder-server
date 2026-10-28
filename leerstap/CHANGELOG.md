@@ -1,5 +1,10 @@
 # Wijzigingen
 
+## 0.9.11 — 28 oktober 2026
+
+- Woordjes van meerdere foto’s staan in **de volgorde van het boek** (blz. 213, 214, 215, en binnen een bladzijde van boven naar beneden), ook als de AI ze in een andere volgorde teruggeeft.
+- Foto’s die elkaar overlappen (de laatste regel van de ene foto staat ook op de volgende) geven **geen dubbele rijen** meer.
+
 ## 0.9.10 — 28 oktober 2026
 
 - Hersteld: **van ~90 woordjes bleven er maar 6 over** bij meerdere foto’s. Elke foto is een eigen bestand en dus "pagina 1"; daardoor werd elke rij vergeleken met één en dezelfde foto, en alles van de andere bladzijden afgekeurd. Nu krijgen de bladzijden een eigen nummer in boekvolgorde (blz. 213, 214, 215 …) en wordt elke rij gezocht op de bladzijde waar hij staat, of anders op een van de andere gekozen bladzijden. Wat nergens letterlijk staat, valt nog steeds af.

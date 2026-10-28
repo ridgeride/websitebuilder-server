@@ -4,7 +4,7 @@ import {extract} from './files.js';
 import {makePDF} from './pdf.js';
 import {readPhotos,dataUrlBlob} from './ocr.js';
 import {call,records,diff,splitKey} from './sync.js';
-const VERSION='0.9.10',SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
+const VERSION='0.9.11',SCHOOL_TYPES=['vmbo-basis','vmbo-kader','vmbo-gl','vmbo-tl','havo','vwo','gymnasium','havo/vwo'];
 let state,me=null,usage={analyses:0,limit:0},revs={},synced=new Map(),drafts={},pageCache={},saveStatus='ok',retryTimer,installPrompt=null,oldVault=null,authView='login',recoveryShown=null,inviteRequired=false,route='home',profile=null,selected='demo',tab='summary',questionIndex=0,practiceResult=null,ai=false,parent=false,ephemeral=false,saveChain=Promise.resolve(),adminData=null,lastInvite=null,adminRecovery=null,inviteFromLink='',requestSent=false,uploadTarget=null,confidence={},editingList=null,explainOpen=null,explainText={},explainResult={};
 const $=s=>document.querySelector(s),root=$('#app');
 const btn=(text,action,cls='',extra='')=>`<button class="${cls}" data-action="${action}" ${extra}>${text}</button>`;

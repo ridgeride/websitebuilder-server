@@ -94,12 +94,17 @@ export async function wordsFromSource(env,{pages}){
  const {data,usage}=await callModel(env,{instructions,content,schema,name:'woordjes',maxTokens:16000});
  const cols=data.cols.slice(0,4).map(c=>String(c).trim().slice(0,60)).filter(Boolean),n=Math.max(2,Math.min(4,cols.length||2));
  // Text pages: every value must literally be on the page. Photo-only pages cannot be checked here, so the pupil is asked to compare.
- let dropped=0,unchecked=0;const pairs=[];
+ let dropped=0,unchecked=0;const pairs=[],seen=new Set();
  for(const r of data.rows.slice(0,400)){const v=r.values.slice(0,n).map(x=>String(x).trim().slice(0,200));if(v.length<2||!v[0]||!v[1])continue;
   // A row must be literally on one of the text pages; the page the AI names is tried first, then the others.
   const named=pages.find(p=>p.n===r.page),texts=pages.filter(p=>(p.text||'').trim().length>=60),on=p=>{const hay=norm(p.text);return v.every(x=>!x||hay.includes(norm(x)));};
   let page=named||pages[0];if(texts.length){const hit=named&&texts.includes(named)&&on(named)?named:texts.find(on);if(!hit){dropped++;continue;}page=hit;}else unchecked++;
-  const p={a:v[0],b:v[1],page:page.bookPage||page.page};if(v[2])p.c=v[2];if(v[3])p.d=v[3];pairs.push(p);}
+  // Photos that overlap (the last row of one photo again on the next) give the same row twice: it is kept once.
+  const key=v.map(norm).join('\u0000');if(seen.has(key))continue;seen.add(key);
+  const p={a:v[0],b:v[1],page:page.bookPage||page.page,n:page.n,at:pairs.length};if(v[2])p.c=v[2];if(v[3])p.d=v[3];pairs.push(p);}
+ // In book order, whatever order the rows came back in; within a page the order of the book stays.
+ for(const pg of pages){const lines=String(pg.text||'').split('\n').map(norm);for(const p of pairs.filter(p=>p.n===pg.n)){const vals=[p.a,p.b,p.c,p.d].filter(Boolean).map(norm),at=lines.findIndex(l=>vals.every(x=>l.includes(x)));p.at=at>=0?at:lines.findIndex(l=>l.includes(vals[0]));if(p.at<0)p.at=1e6;}}
+ pairs.sort((x,y)=>x.n-y.n||x.at-y.at);for(const p of pairs){delete p.n;delete p.at;}
  const warnings=data.warnings.slice(0,10).map(String);
  if(dropped)warnings.push(`${dropped} rij(en) stonden niet letterlijk in de bron en zijn weggelaten.`);
  if(unchecked)warnings.push('De woordjes komen van een foto. Vergelijk ze met je boek voordat je de lijst opslaat.');
